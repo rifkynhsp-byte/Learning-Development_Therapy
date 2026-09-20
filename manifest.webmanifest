@@ -1,0 +1,14 @@
+{
+  "name": "Sensory Runner",
+  "short_name": "Runner",
+  "description": "Motion-tracked endless runner for paediatric occupational therapy: jump, duck, side step and stretch.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0d1b2a",
+  "theme_color": "#0d1b2a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
