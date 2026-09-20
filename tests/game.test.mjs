@@ -1,12 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RunnerGame } from '../js/game.js';
+import { RunnerGame, SPEED_PRESETS, TOLERANCE } from '../js/game.js';
 import { stubCanvas, stubWindow, silentSfx } from './helpers.mjs';
 
 stubWindow();
 
 const PLAYER_Z = 3.5; // must match js/game.js
-const newGame = () => new RunnerGame(stubCanvas(), silentSfx, () => {});
+const newGame = (opts = {}) => {
+  const game = new RunnerGame(stubCanvas(), silentSfx, opts.onEvent || (() => {}));
+  // Yoga gates freeze the world waiting for a pose the tests cannot strike.
+  game.gatesEnabled = opts.gates ?? false;
+  return game;
+};
+
+/** Run frames with fixed input, e.g. to let a deferred crash land. */
+function idleFor(game, seconds, input = {}) {
+  const base = { lane: game.player.lane, ducking: false, jump: false, reach: false };
+  for (let f = 0; f < Math.round(seconds * 60); f++) game.update(1 / 60, { ...base, ...input });
+  return game;
+}
 
 /**
  * A competent player: ducks full-width bars, jumps barrier rows, and takes the
@@ -111,7 +123,7 @@ test('a stretch collects a shield, which then absorbs one hit', () => {
   assert.equal(game.shield, 0, 'and is spent');
 
   game.obstacles.push({ type: 'train', lane: 0, z: PLAYER_Z });
-  game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  idleFor(game, TOLERANCE.late + 0.1);
   assert.equal(game.running, false, 'the next hit ends the run');
 });
 
@@ -125,6 +137,7 @@ test('a jump clears a barrier but not a train', () => {
       game.obstacles = [{ type, lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
       game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
     }
+    idleFor(game, TOLERANCE.late + 0.1);
     assert.equal(game.running, shouldSurvive, `${type} outcome`);
   }
 });
@@ -137,6 +150,7 @@ test('a squat clears a low bar, standing does not', () => {
       game.obstacles = [{ type: 'bar', lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
       game.update(1 / 60, { lane: 0, ducking, jump: false, reach: false });
     }
+    idleFor(game, TOLERANCE.late + 0.1, { ducking });
     assert.equal(game.running, shouldSurvive, `ducking=${ducking}`);
   }
 });
@@ -157,4 +171,131 @@ test('a long frame stall cannot teleport the player through an obstacle', () => 
   const before = game.distance;
   game.update(5, { lane: 0, ducking: false, jump: false, reach: false }); // 5 s hitch
   assert.ok(game.distance - before < 2, 'dt is clamped');
+});
+
+test('jumping far too early is still forgiven', () => {
+  const game = newGame();
+  game.start();
+  game.update(1 / 60, { lane: 0, ducking: false, jump: true, reach: false });
+  idleFor(game, 1.1);                       // jumped, flown, landed, waited
+  assert.equal(game.player.y, 0, 'back on the ground');
+  for (let f = 0; f < 18; f++) {
+    game.obstacles = [{ type: 'barrier', lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  }
+  idleFor(game, TOLERANCE.late + 0.1);
+  assert.equal(game.running, true, 'an early jump still counts');
+});
+
+test('jumping much too early eventually stops counting', () => {
+  const game = newGame();
+  game.start();
+  game.update(1 / 60, { lane: 0, ducking: false, jump: true, reach: false });
+  idleFor(game, 1 + TOLERANCE.earlyJump + 0.4);   // airtime, then well past the window
+  for (let f = 0; f < 18; f++) {
+    game.obstacles = [{ type: 'barrier', lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  }
+  idleFor(game, TOLERANCE.late + 0.1);
+  assert.equal(game.running, false);
+});
+
+test('jumping slightly too late still rescues the run', () => {
+  const game = newGame();
+  game.start();
+  for (let f = 0; f < 18; f++) {
+    game.obstacles = [{ type: 'barrier', lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  }
+  assert.ok(game.pendingCrash, 'the crash is deferred, not immediate');
+  game.update(1 / 60, { lane: 0, ducking: false, jump: true, reach: false });
+  idleFor(game, TOLERANCE.late + 0.2);
+  assert.equal(game.running, true, 'a late jump saves it');
+});
+
+test('ducking slightly too late still rescues the run', () => {
+  const game = newGame();
+  game.start();
+  for (let f = 0; f < 18; f++) {
+    game.obstacles = [{ type: 'bar', lane: 0, z: PLAYER_Z + 1 - f * 0.12 }];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  }
+  assert.ok(game.pendingCrash);
+  idleFor(game, TOLERANCE.late - 0.05, { ducking: true });
+  assert.equal(game.running, true);
+});
+
+test('speed presets scale the pace up and down', () => {
+  const speeds = {};
+  for (const key of Object.keys(SPEED_PRESETS)) {
+    const game = newGame();
+    game.setSpeedPreset(key);
+    game.start();
+    idleFor(game, 1);
+    speeds[key] = game.speed;
+  }
+  assert.ok(Math.abs(speeds.medium / speeds.slow - 2) < 0.15, 'slow is about half');
+  assert.ok(Math.abs(speeds.fast / speeds.medium - 2) < 0.15, 'fast is about double');
+});
+
+test('slow speed leaves far more time between obstacles', () => {
+  const timeBetween = (key) => {
+    const game = newGame();
+    game.setSpeedPreset(key);
+    game.start();
+    let first = null;
+    for (let f = 0; f < 60 * 60; f++) {
+      const before = game.obstacles.length + game.pickups.length;
+      game.update(1 / 60, { lane: 0, ducking: true, jump: false, reach: false });
+      if (game.obstacles.length + game.pickups.length > before) {
+        if (first === null) first = game.time;
+        else return game.time - first;
+      }
+    }
+    return Infinity;
+  };
+  const slow = timeBetween('slow');
+  const fast = timeBetween('fast');
+  assert.ok(slow > fast * 1.8, `slow should give much longer gaps (${slow} vs ${fast})`);
+});
+
+test('a yoga gate freezes the run until it is closed', () => {
+  const events = [];
+  const game = newGame({ gates: true, onEvent: (name, payload) => events.push([name, payload]) });
+  game.start();
+  playWell(game, 120);
+  assert.ok(game.gate, 'a gate arrives');
+  assert.ok(events.some(([, p]) => p && p.gate), 'and is announced');
+
+  const frozen = game.distance;
+  idleFor(game, 2);
+  assert.equal(game.distance, frozen, 'the world waits for the pose');
+  assert.equal(game.running, true, 'and the run is still alive');
+
+  const posesBefore = game.stats.poses;
+  game.closeGate(true);
+  assert.equal(game.stats.poses, posesBefore + 1);
+  assert.equal(game.shield, 1, 'holding the pose earns a star shield');
+  idleFor(game, 1);
+  assert.ok(game.distance > frozen, 'and the run resumes');
+});
+
+test('a gate waved through costs nothing but the bonus', () => {
+  const game = newGame({ gates: true });
+  game.start();
+  playWell(game, 120);
+  assert.ok(game.gate, 'a gate arrives');
+  game.closeGate(false);
+  assert.equal(game.gate, null);
+  assert.equal(game.stats.poses, 0);
+  assert.equal(game.running, true, 'a missed pose never ends the run');
+});
+
+test('every obstacle carries an animal and every fruit a fruit', () => {
+  const game = newGame();
+  game.start();
+  idleFor(game, 40, { ducking: true });
+  assert.ok(game.obstacles.length + game.pickups.length > 0);
+  for (const o of game.obstacles) assert.ok(o.emoji, `${o.type} has art`);
+  for (const p of game.pickups) assert.ok(p.emoji, `${p.kind} has art`);
 });

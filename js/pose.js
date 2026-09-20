@@ -41,16 +41,25 @@ const BONES = [
   [23, 25], [25, 27], [24, 26], [26, 28],
 ];
 
+/**
+ * Movement thresholds, all in torso lengths.
+ *
+ * These are set low on purpose. A missed jump is far worse than an extra one:
+ * the child tried, the game ignored them, and they learn that jumping does not
+ * work. A false positive costs nothing by comparison. If anything here needs
+ * changing on real equipment, this is the only block to touch.
+ */
 const TUNING = {
-  jumpRise: 0.09,      // hips this far above baseline (in torso lengths) = jump
-  kneeLift: 0.30,      // ...or one knee lifted this high, for kids who march
-  duckEnter: -0.15,    // hips this far below baseline = duck
-  duckExit: -0.08,     // hysteresis so a wobble does not flicker the state
-  laneEnter: 0.42,     // sideways travel needed to commit to a lane
-  laneExit: 0.26,
-  reachRise: 0.25,     // wrists above shoulders by this much = big stretch
-  jumpCooldown: 420,   // ms
-  reachCooldown: 900,
+  jumpRise: 0.05,      // hips this far above baseline = jump (was 0.09)
+  jumpVelocity: 0.85,  // ...or hips moving up this fast, for a small quick hop
+  kneeLift: 0.20,      // ...or one knee lifted this high, for kids who march
+  duckEnter: -0.12,    // hips this far below baseline = duck
+  duckExit: -0.06,     // hysteresis so a wobble does not flicker the state
+  laneEnter: 0.34,     // sideways travel needed to commit to a lane
+  laneExit: 0.20,
+  reachRise: 0.18,     // wrists above shoulders by this much = big stretch
+  jumpCooldown: 320,   // ms
+  reachCooldown: 800,
   minVisibility: 0.5,
 };
 
@@ -82,6 +91,8 @@ export class PoseController {
     // would swallow the very first jump or stretch as if it were a repeat.
     this._lastJumpAt = -1e9;
     this._lastReachAt = -1e9;
+    this._lastRise = 0;
+    this._lastRiseAt = 0;
     this._wasAirborne = false;
     this.landmarks = null;
   }
@@ -248,8 +259,19 @@ export class PoseController {
       ? (b.kneeY - m.kneeY) / torso : 0;
     this.state.rise = hipRise;
 
-    // --- Jump: hips up, or a knee driven up for a child who marches instead.
-    const airborne = hipRise > TUNING.jumpRise || kneeLift > TUNING.kneeLift;
+    // --- Jump. Three ways to earn one, because a small child's hop off a
+    // carpet barely moves their hips: height, upward speed, or a knee lifted
+    // high enough that marching on the spot counts.
+    const elapsed = this._lastRiseAt ? (now - this._lastRiseAt) / 1000 : 0;
+    const riseVelocity = elapsed > 0.005 && elapsed < 0.5
+      ? (hipRise - this._lastRise) / elapsed
+      : 0;
+    this._lastRise = hipRise;
+    this._lastRiseAt = now;
+
+    const airborne = hipRise > TUNING.jumpRise
+      || kneeLift > TUNING.kneeLift
+      || (riseVelocity > TUNING.jumpVelocity && hipRise > TUNING.jumpRise * 0.4);
     if (airborne && !this._wasAirborne && now - this._lastJumpAt > TUNING.jumpCooldown) {
       this.state.jump = true;
       this._lastJumpAt = now;
@@ -323,6 +345,12 @@ async function firstThatWorks(candidates, attempt) {
     }
   }
   throw new Error(`Could not load the motion tracker (${last && last.message}).`);
+}
+
+/** Adjust thresholds at runtime, e.g. from a difficulty setting. */
+export function tune(overrides = {}) {
+  Object.assign(TUNING, overrides);
+  return { ...TUNING };
 }
 
 export { TUNING };
