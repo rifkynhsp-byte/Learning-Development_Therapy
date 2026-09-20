@@ -198,3 +198,180 @@ button:active { transform: scale(0.97); }
 @media (prefers-reduced-motion: reduce) {
   #breath-dot, .spinner { animation-duration: 0.001s; }
 }
+
+/* ---------- Added for practice room, gates, settings and progress ---------- */
+
+.panel.wide { width: min(720px, 100%); }
+
+.subhead {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin: 20px 0 8px;
+  text-align: left;
+}
+
+.legend .ico { display: inline-block; width: 1.6em; }
+
+/* Settings on the menu */
+.field { margin: 0 0 16px; text-align: left; }
+
+.field-label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.segmented { display: flex; gap: 6px; }
+
+.segmented button {
+  flex: 1;
+  margin: 0;
+  padding: 13px 8px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  border: 2px solid transparent;
+  font-size: clamp(14px, 3vw, 17px);
+}
+
+.segmented button.on {
+  background: rgba(76, 201, 240, 0.2);
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+
+.toggles { display: grid; gap: 8px; }
+
+.toggles label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.toggles input { width: 20px; height: 20px; accent-color: var(--accent-2); }
+
+/* Practice room + yoga gate */
+.practice-emoji {
+  font-size: clamp(64px, 16vw, 120px);
+  line-height: 1.1;
+  animation: bob 1.6s ease-in-out infinite;
+}
+
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+.holdbar {
+  height: 16px;
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0 auto 14px;
+  max-width: 420px;
+}
+
+.holdbar > div {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.12s linear;
+}
+
+.checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 18px 0;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  font-size: 14px;
+  opacity: 0.55;
+}
+
+.chip.active { opacity: 1; border-color: var(--accent-2); background: rgba(76, 201, 240, 0.18); }
+.chip.passed { opacity: 1; border-color: #7ddf9a; color: #7ddf9a; }
+.chip.skipped { opacity: 0.8; border-color: #f0a868; color: #f0a868; }
+.chip .tick::after { content: '\2713'; }
+.chip.skipped .tick::after { content: '\21BA'; }
+
+.bigcount {
+  font-size: clamp(70px, 18vw, 130px);
+  font-weight: bold;
+  color: var(--accent);
+  line-height: 1;
+  margin: 8px 0 16px;
+}
+
+/* Reports */
+.statgrid { grid-template-columns: repeat(3, 1fr); }
+
+.exercise {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 12px 0 18px;
+}
+
+.exercise div {
+  background: rgba(76, 201, 240, 0.12);
+  border-radius: 12px;
+  padding: 12px 6px;
+}
+
+.exercise b { display: block; font-size: clamp(18px, 4.4vw, 28px); color: var(--accent); }
+.exercise small { font-size: 11px; opacity: 0.7; }
+
+.sessions { display: grid; gap: 6px; max-height: 190px; overflow-y: auto; margin-bottom: 8px; }
+
+.session-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 9px 13px;
+  font-size: 14px;
+}
+
+.session-row .when { opacity: 0.65; }
+.session-row .what { color: var(--accent-2); }
+
+.empty { opacity: 0.55; font-size: 14px; padding: 14px; }
+
+@media (max-width: 420px) {
+  .statgrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Short screens (a laptop in landscape, an iPad mini): keep the run report on
+   one screen rather than making a parent scroll for the buttons. */
+@media (max-height: 820px) {
+  .panel { padding: 16px clamp(14px, 3vw, 24px); }
+  .scoreline { font-size: clamp(34px, 8vh, 56px); }
+  .statgrid, .exercise { margin: 10px 0; gap: 6px; }
+  .statgrid div, .exercise div { padding: 7px 4px; }
+  #breath { height: 44px; margin-bottom: 8px; }
+  #over-rest { margin-bottom: 6px; font-size: 14px; }
+  button { padding: 12px 22px; }
+  .practice-emoji { font-size: clamp(48px, 11vh, 86px); }
+  .legend li { padding: 6px 12px; margin-bottom: 5px; }
+}

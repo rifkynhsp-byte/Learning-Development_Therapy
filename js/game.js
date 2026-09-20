@@ -3,10 +3,15 @@
  * pseudo-3D projection on a 2D canvas (no engine, no asset downloads).
  *
  * Every obstacle type demands one specific whole-body movement:
- *   barrier -> jump      (vestibular input, lower-body heavy work)
- *   low bar -> squat     (core stability, sustained leg strength)
- *   train   -> side step (weight shift, bilateral coordination)
- *   shield  -> stretch   (overhead extension, crossing the midline)
+ *   ground animal   -> jump      (vestibular input, lower-body heavy work)
+ *   flying animal   -> squat     (core stability, sustained leg strength)
+ *   big animal      -> side step (weight shift, bilateral coordination)
+ *   star            -> stretch   (overhead extension, crossing the midline)
+ *   yoga gate       -> held pose (reflex integration: Cat, Cow, Cobra, Star)
+ *
+ * Timing is forgiving by design. See TOLERANCE below: a child who jumps early
+ * or late still gets through, because the therapeutic value is in the jump,
+ * not in the frame it landed on.
  */
 
 const LANES = [-1, 0, 1];
@@ -16,18 +21,62 @@ const PLAYER_Z = 3.5;      // the runner sits ahead of the camera, not on it,
 const FAR = 58;            // spawn distance, in world units
 const ROAD_FAR = 260;      // the road itself is drawn well past that, so it
                            // converges into the horizon instead of stopping short
-// A floatier arc than a grown-up runner would use: it widens the window in
-// which the child is above a barrier to roughly 0.65 s, which absorbs both a
-// slightly early take-off and the tracking latency before it.
-const GRAVITY = 18;        // world units / s^2
-const JUMP_V = 6.6;        // initial upward velocity
-const DUCK_HOLD = 0.55;    // min seconds a duck stays latched
+// A floaty arc: it widens the window in which the child is above an obstacle,
+// which absorbs both a slightly early take-off and the tracking latency.
+const GRAVITY = 18;
+const JUMP_V = 6.6;
+const DUCK_HOLD = 0.7;     // min seconds a duck stays latched
+
+/** Speed settings, offered to the adult in the menu. */
+export const SPEED_PRESETS = {
+  slow:   { label: 'Slow',   multiplier: 0.5 },
+  medium: { label: 'Medium', multiplier: 1.0 },
+  fast:   { label: 'Fast',   multiplier: 2.0 },
+};
+
+/**
+ * How generous the timing is. All in seconds.
+ *
+ * `early` covers the child who jumps as soon as they see the animal and has
+ * already landed by the time it arrives. `late` defers the crash for a moment,
+ * so a jump that lands just after contact still rescues them. Between them
+ * they turn "you mistimed it" into "you moved, that counts".
+ */
+export const TOLERANCE = {
+  earlyJump: 0.75,
+  earlyDuck: 0.5,
+  late: 0.3,
+};
 
 const OBSTACLES = {
-  barrier: { h0: 0, h1: 0.62, w: 0.78, depth: 0.5, face: '#ef476f', top: '#ff7d9c' },
-  bar:     { h0: 0.92, h1: 1.35, w: 0.95, depth: 0.5, face: '#f78c6b', top: '#ffb59b' },
-  train:   { h0: 0, h1: 2.0, w: 0.86, depth: 2.6, face: '#3a86ff', top: '#7fb0ff' },
+  // Ground animals: jump over them.
+  barrier: {
+    h0: 0, h1: 0.58, w: 0.8, depth: 0.5,
+    face: '#ef476f', top: '#ff7d9c',
+    emojis: ['\u{1F40A}', '\u{1F422}', '\u{1F994}', '\u{1F438}', '\u{1F994}'],
+    action: 'jump',
+  },
+  // Flying things at head height: duck under them.
+  bar: {
+    h0: 0.92, h1: 1.4, w: 0.98, depth: 0.5,
+    face: '#f78c6b', top: '#ffb59b',
+    emojis: ['\u{1F987}', '\u{1F41D}', '\u{1F99C}', '\u{1F985}'],
+    action: 'duck',
+  },
+  // Big animals filling a lane: step around them.
+  train: {
+    h0: 0, h1: 2.0, w: 0.88, depth: 2.6,
+    face: '#3a86ff', top: '#7fb0ff',
+    emojis: ['\u{1F42F}', '\u{1F981}', '\u{1F418}', '\u{1F98F}', '\u{1F43B}'],
+    action: 'dodge',
+  },
 };
+
+const FRUIT = ['\u{1F34E}', '\u{1F34C}', '\u{1F353}', '\u{1F347}', '\u{1F34A}',
+               '\u{1F349}', '\u{1F95D}', '\u{1F34D}', '\u{1F352}', '\u{1F96D}'];
+
+const GATE_SHAPES = ['cow', 'cat', 'cobra', 'star'];
+const GATE_EVERY = 320;    // metres between yoga gates
 
 export class RunnerGame {
   constructor(canvas, sfx, onEvent = () => {}) {
@@ -36,9 +85,18 @@ export class RunnerGame {
     this.sfx = sfx;
     this.onEvent = onEvent;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.speedPreset = 'medium';
+    this.speedMultiplier = SPEED_PRESETS.medium.multiplier;
+    this.gatesEnabled = true;
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.reset();
+  }
+
+  setSpeedPreset(key) {
+    if (!SPEED_PRESETS[key]) return;
+    this.speedPreset = key;
+    this.speedMultiplier = SPEED_PRESETS[key].multiplier;
   }
 
   resize() {
@@ -57,24 +115,35 @@ export class RunnerGame {
   reset() {
     this.running = false;
     this.over = false;
+    this.time = 0;
     this.distance = 0;
     this.coins = 0;
-    this.speed = 9;
+    this.speed = 8 * this.speedMultiplier;
     this.obstacles = [];
     this.pickups = [];
     this.particles = [];
+    this.popups = [];
     this.sinceSpawn = 0;
-    this.nextGap = 14;
+    this.nextGap = 16;
     this.shield = 0;
     this.runPhase = 0;
     this.shake = 0;
     this.flash = 0;
-    this.player = { lane: 0, x: 0, y: 0, vy: 0, ducking: false, duckTimer: 0 };
-    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0 };
+    this.pendingCrash = null;
+    this.gate = null;
+    this.nextGateAt = GATE_EVERY;
+    this.player = {
+      lane: 0, x: 0, y: 0, vy: 0,
+      ducking: false, duckTimer: 0,
+      lastJumpAt: -99, lastDuckAt: -99, lastAirborneAt: -99,
+    };
+    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0, poses: 0 };
   }
 
   start() {
+    const preset = this.speedPreset;
     this.reset();
+    this.speedPreset = preset;
     this.running = true;
   }
 
@@ -83,10 +152,13 @@ export class RunnerGame {
   update(dt, input) {
     dt = Math.min(dt, 0.05); // a backgrounded tab must not teleport the player
     if (!this.running) { this.render(); return; }
+    this.time += dt;
 
-    // Deliberately gentle ramp: the limit here is a five-year-old's reaction
-    // time plus a few frames of tracking latency, not screen speed.
-    this.speed = Math.min(15, 8 + this.distance * 0.007);
+    // A yoga gate freezes the world until the pose is done or waved through.
+    if (this.gate) { this._updateGateVisual(dt); this.render(); return; }
+
+    this.speed = Math.min(15, 8 + this.distance * 0.007 / this.speedMultiplier)
+      * this.speedMultiplier;
     this.distance += this.speed * dt;
     this.runPhase += dt * (this.speed * 0.9);
     this.shake = Math.max(0, this.shake - dt * 4);
@@ -96,7 +168,7 @@ export class RunnerGame {
     this._movePlayer(dt);
     this._spawn(dt);
     this._advanceWorld(dt);
-    this._collide();
+    this._collide(dt);
     this.render();
   }
 
@@ -107,42 +179,47 @@ export class RunnerGame {
       p.lane = input.lane;
       this.stats.lanes++;
       this.sfx.lane();
-      this.onEvent(input.lane < 0 ? 'Left!' : input.lane > 0 ? 'Right!' : 'Middle');
+      this.onEvent(input.lane < 0 ? 'Left!' : input.lane > 0 ? 'Right!' : 'Middle', { move: 'lanes' });
     }
 
     if (input.jump && p.y <= 0.001) {
       p.vy = JUMP_V;
+      p.lastJumpAt = this.time;
+      p.lastAirborneAt = this.time;
       p.ducking = false;
       p.duckTimer = 0;
       this.stats.jumps++;
       this.sfx.jump();
-      this.onEvent('Jump!');
+      this.onEvent('Jump!', { move: 'jumps' });
     }
 
     // A squat is held as long as the child stays low, but latches briefly so a
-    // fast bob still carries them under the bar.
+    // fast bob still carries them under the obstacle.
     if (input.ducking && p.y <= 0.001) {
       if (!p.ducking) {
         this.stats.ducks++;
         this.sfx.duck();
-        this.onEvent('Duck!');
+        this.onEvent('Duck!', { move: 'ducks' });
       }
       p.ducking = true;
       p.duckTimer = DUCK_HOLD;
+      p.lastDuckAt = this.time;
     } else if (p.ducking) {
       p.duckTimer -= dt;
+      p.lastDuckAt = this.time;
       if (p.duckTimer <= 0) p.ducking = false;
     }
 
     if (input.reach) {
       this.stats.reaches++;
-      this.onEvent('Big stretch!');
+      this.onEvent('Big stretch!', { move: 'reaches' });
       this._grabHighPickups();
     }
   }
 
   _movePlayer(dt) {
     const p = this.player;
+    if (p.y > 0.001) p.lastAirborneAt = this.time;
     if (p.y > 0 || p.vy > 0) {
       p.vy -= GRAVITY * dt;
       p.y += p.vy * dt;
@@ -153,6 +230,10 @@ export class RunnerGame {
   }
 
   _spawn(dt) {
+    if (this.gatesEnabled && this.distance >= this.nextGateAt && !this.gate) {
+      this._openGate();
+      return;
+    }
     this.sinceSpawn += this.speed * dt;
     if (this.sinceSpawn < this.nextGap) return;
     this.sinceSpawn = 0;
@@ -160,7 +241,7 @@ export class RunnerGame {
     // window: at top speed this still leaves over a second between moves.
     this.nextGap = Math.max(15, 20 - this.distance * 0.004) + Math.random() * 5;
 
-    // Warm-up: the first stretch is only single barriers, bars and coins, so
+    // Warm-up: the first stretch is only single animals, flyers and fruit, so
     // the child meets one movement at a time before lanes come into it.
     const warmup = this.distance < 140;
     const roll = Math.random();
@@ -178,37 +259,40 @@ export class RunnerGame {
     else this._spawnShield();
   }
 
+  _makeObstacle(type, lane) {
+    const pool = OBSTACLES[type].emojis;
+    return { type, lane, z: FAR, emoji: pool[Math.floor(Math.random() * pool.length)] };
+  }
+
   _spawnBarrier(single = false) {
-    // A barrier in one lane can be side-stepped, which is fine variety but
+    // An animal in one lane can be side-stepped, which is fine variety but
     // never actually asks for a jump. A full-width row leaves only one answer:
     // get both feet off the floor.
     if (Math.random() < 0.5) {
-      for (const lane of LANES) this.obstacles.push({ type: 'barrier', lane, z: FAR });
+      for (const lane of LANES) this.obstacles.push(this._makeObstacle('barrier', lane));
       return;
     }
     const lane = pick(LANES);
-    this.obstacles.push({ type: 'barrier', lane, z: FAR });
+    this.obstacles.push(this._makeObstacle('barrier', lane));
     if (!single && Math.random() < 0.35) {
       const other = pick(LANES.filter((l) => l !== lane));
-      this.obstacles.push({ type: 'barrier', lane: other, z: FAR });
+      this.obstacles.push(this._makeObstacle('barrier', other));
     }
   }
 
   _spawnBar() {
-    // Full-width bar: the only way through is to get low.
-    for (const lane of LANES) this.obstacles.push({ type: 'bar', lane, z: FAR });
+    // Full width: the only way through is to get low.
+    for (const lane of LANES) this.obstacles.push(this._makeObstacle('bar', lane));
   }
 
   _spawnTrains() {
     const free = pick(LANES);
     for (const lane of LANES) {
       if (lane === free) continue;
-      if (Math.random() < 0.7) this.obstacles.push({ type: 'train', lane, z: FAR });
+      if (Math.random() < 0.7) this.obstacles.push(this._makeObstacle('train', lane));
     }
-    // Reward the side step with a coin trail down the open lane.
-    for (let i = 0; i < 4; i++) {
-      this.pickups.push({ kind: 'coin', lane: free, z: FAR + i * 1.6, y: 0.75, spin: Math.random() * 6 });
-    }
+    // Reward the side step with a fruit trail down the open lane.
+    for (let i = 0; i < 4; i++) this.pickups.push(fruit(free, FAR + i * 1.6, 0.75));
   }
 
   _spawnCoins() {
@@ -216,14 +300,60 @@ export class RunnerGame {
     const arc = Math.random() < 0.5;
     for (let i = 0; i < 6; i++) {
       // An arc sits high enough that the child has to jump through it.
-      const y = arc ? 0.6 + Math.sin((i / 5) * Math.PI) * 1.1 : 0.75;
-      this.pickups.push({ kind: 'coin', lane, z: FAR + i * 1.5, y, spin: Math.random() * 6 });
+      const y = arc ? 0.6 + Math.sin((i / 5) * Math.PI) * 1.0 : 0.75;
+      this.pickups.push(fruit(lane, FAR + i * 1.5, y));
     }
   }
 
   _spawnShield() {
-    this.pickups.push({ kind: 'shield', lane: pick(LANES), z: FAR, y: 2.1, spin: 0 });
+    this.pickups.push({ kind: 'shield', lane: pick(LANES), z: FAR, y: 2.0, spin: 0, emoji: '⭐' });
   }
+
+  // ------------------------------------------------------------- yoga gates
+
+  _openGate() {
+    const shape = GATE_SHAPES[Math.floor(Math.random() * GATE_SHAPES.length)];
+    this.gate = { shape, z: FAR * 0.45, arrived: false, progress: 0 };
+    this.nextGateAt += GATE_EVERY;
+    this.obstacles = this.obstacles.filter((o) => o.z < this.gate.z - 6);
+    this.onEvent('Yoga time!', { gate: shape });
+  }
+
+  /** The archway glides in, then waits: the app drives the pose itself. */
+  _updateGateVisual(dt) {
+    const g = this.gate;
+    if (g.arrived) return;
+    g.z -= this.speed * dt * 0.8;
+    if (g.z <= PLAYER_Z + 1.5) {
+      g.z = PLAYER_Z + 1.5;
+      g.arrived = true;
+    }
+  }
+
+  setGateProgress(progress) {
+    if (this.gate) this.gate.progress = progress;
+  }
+
+  /** Close a gate. `passed` awards the bonus; either way the run continues. */
+  closeGate(passed) {
+    if (!this.gate) return;
+    const shape = this.gate.shape;
+    if (passed) {
+      this.stats.poses++;
+      this.shield = 1;
+      this.flash = 1;
+      this.coins += 5;
+      this.sfx.fanfare();
+      this.onEvent('Beautiful pose!', { move: 'pose', shape });
+      this._popup('+5', '#ffd166');
+    } else {
+      this.onEvent('Good try!', {});
+    }
+    this.gate = null;
+    this.sinceSpawn = 0;
+  }
+
+  // ------------------------------------------------------------ world step
 
   _advanceWorld(dt) {
     const d = this.speed * dt;
@@ -239,9 +369,12 @@ export class RunnerGame {
       s.vy += 380 * dt;
     }
     this.particles = this.particles.filter((s) => s.life > 0);
+
+    for (const p of this.popups) { p.life -= dt; p.y -= dt * 60; }
+    this.popups = this.popups.filter((p) => p.life > 0);
   }
 
-  /** Overhead stretch sweeps up any shield hanging within reach. */
+  /** Overhead stretch sweeps up any star hanging within reach. */
   _grabHighPickups() {
     for (const p of this.pickups) {
       if (p.kind !== 'shield' || p.taken) continue;
@@ -251,15 +384,49 @@ export class RunnerGame {
       this.shield = 1;
       this.flash = 1;
       this.sfx.shield();
-      this.onEvent('Shield!');
+      this.onEvent('Star shield!', {});
       this._burst(p, '#ffd166', 22);
     }
   }
 
-  _collide() {
+  // -------------------------------------------------------------- collision
+
+  /** Did the child do the right thing recently enough to count? */
+  _forgiven(spec) {
+    const p = this.player;
+    if (spec.action === 'jump') {
+      // Measured from when they landed, not from take-off: the jump itself
+      // takes most of a second, and counting that against them would leave
+      // almost no forgiveness at all.
+      return p.y > 0.001 || this.time - p.lastAirborneAt < TOLERANCE.earlyJump;
+    }
+    if (spec.action === 'duck') {
+      return p.ducking || this.time - p.lastDuckAt < TOLERANCE.earlyDuck;
+    }
+    return false;
+  }
+
+  _collide(dt) {
     const p = this.player;
     const headroom = p.ducking ? 0.62 : 1.25;   // player height, world units
     const feet = p.y;
+
+    // A crash is never instant: the child gets a moment to still do the right
+    // thing. This is the "too late" half of the timing tolerance.
+    if (this.pendingCrash) {
+      const pc = this.pendingCrash;
+      pc.timer -= dt;
+      if (this._forgiven(OBSTACLES[pc.obstacle.type])) {
+        pc.obstacle.hit = true;
+        this.pendingCrash = null;
+        this.sfx.block();
+        this.onEvent('Just made it!', {});
+      } else if (pc.timer <= 0) {
+        this.pendingCrash = null;
+        this._gameOver();
+        return;
+      }
+    }
 
     for (const o of this.obstacles) {
       if (o.hit) continue;
@@ -268,22 +435,26 @@ export class RunnerGame {
       const near = rel - 0.45;
       const far = rel + spec.depth + 0.45;
       if (near > 0 || far < 0) continue;              // not level with the player yet
-      if (Math.abs(o.lane - p.x) > 0.5) continue;    // in a different lane
+      if (Math.abs(o.lane - p.x) > 0.5) continue;     // in a different lane
 
-      const clearsOver = feet >= spec.h1 - 0.1;                 // jumped it
-      const clearsUnder = feet + headroom <= spec.h0 + 0.1;     // ducked under it
-      if (clearsOver || clearsUnder) continue;
+      const clearsOver = feet >= spec.h1 - 0.12;                 // jumped it
+      const clearsUnder = feet + headroom <= spec.h0 + 0.12;     // ducked under it
+      if (clearsOver || clearsUnder || this._forgiven(spec)) {
+        o.hit = true;                                 // counted as cleared
+        continue;
+      }
 
-      o.hit = true;
       if (this.shield > 0) {
+        o.hit = true;
         this.shield = 0;
         this.shake = 0.6;
         this.sfx.block();
-        this.onEvent('Shield saved you!');
+        this.onEvent('Star saved you!', {});
         this._burst({ lane: o.lane, z: Math.max(o.z, PLAYER_Z), y: 0.9 }, '#4cc9f0', 18);
         continue;
       }
-      this._gameOver();
+
+      if (!this.pendingCrash) this.pendingCrash = { obstacle: o, timer: TOLERANCE.late };
       return;
     }
 
@@ -293,7 +464,7 @@ export class RunnerGame {
       if (Math.abs(q.lane - p.x) > 0.5) continue;
       const low = feet;
       const high = feet + headroom;
-      if (q.y < low - 0.25 || q.y > high + 0.25) continue;
+      if (q.y < low - 0.3 || q.y > high + 0.3) continue;
       q.taken = true;
       this.coins++;
       this.sfx.coin();
@@ -306,8 +477,8 @@ export class RunnerGame {
     this.over = true;
     this.shake = 1;
     this.sfx.crash();
-    this.onEvent('Oops!');
-    this.onEvent('__gameover__');
+    this.onEvent('Oops!', {});
+    this.onEvent('__gameover__', {});
   }
 
   _burst(at, color, count) {
@@ -322,6 +493,10 @@ export class RunnerGame {
         size: 3 + Math.random() * 4,
       });
     }
+  }
+
+  _popup(text, color) {
+    this.popups.push({ text, color, x: this.w / 2, y: this.h * 0.45, life: 1.2 });
   }
 
   // ---------------------------------------------------------------- render
@@ -351,10 +526,13 @@ export class RunnerGame {
       ...this.obstacles.map((o) => ({ z: o.z, draw: () => this._drawObstacle(o) })),
       ...this.pickups.filter((p) => !p.taken).map((p) => ({ z: p.z, draw: () => this._drawPickup(p) })),
       { z: PLAYER_Z, draw: () => this._drawPlayer() },
-    ].sort((a, b) => b.z - a.z);
+    ];
+    if (this.gate) items.push({ z: this.gate.z, draw: () => this._drawGate() });
+    items.sort((a, b) => b.z - a.z);
     for (const it of items) it.draw();
 
     this._drawParticles();
+    this._drawPopups();
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255,209,102,${this.flash * 0.28})`;
       ctx.fillRect(0, 0, this.w, this.h);
@@ -403,13 +581,7 @@ export class RunnerGame {
     road.addColorStop(0, '#20303f');
     road.addColorStop(1, '#2f4457');
     ctx.fillStyle = road;
-    ctx.beginPath();
-    ctx.moveTo(nearL.x, nearL.y);
-    ctx.lineTo(farL.x, farL.y);
-    ctx.lineTo(farR.x, farR.y);
-    ctx.lineTo(nearR.x, nearR.y);
-    ctx.closePath();
-    ctx.fill();
+    quad(ctx, nearL, farL, farR, nearR);
 
     // Sleepers scrolling toward the camera give the sense of speed.
     const spacing = 3;
@@ -418,15 +590,9 @@ export class RunnerGame {
     for (let z = FAR; z > -1; z -= spacing) {
       const zz = z - offset;
       if (zz < -1) continue;
-      const a = this.project(-1.6, 0, zz);
-      const b = this.project(1.6, 0, zz);
-      const c = this.project(1.6, 0, zz + 0.7);
-      const d = this.project(-1.6, 0, zz + 0.7);
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y);
-      ctx.closePath();
-      ctx.fill();
+      quad(ctx,
+        this.project(-1.6, 0, zz), this.project(1.6, 0, zz),
+        this.project(1.6, 0, zz + 0.7), this.project(-1.6, 0, zz + 0.7));
     }
 
     // Distance haze: softens the point where the road meets the skyline.
@@ -448,25 +614,52 @@ export class RunnerGame {
     }
   }
 
+  /**
+   * Obstacles are drawn as a soft coloured block with the animal on the front.
+   * The block carries the shape and the colour coding; the emoji carries the
+   * charm. If a device has no emoji font, the block still reads correctly.
+   */
   _drawObstacle(o) {
     const spec = OBSTACLES[o.type];
-    this._box(o.lane, o.z, spec, o.hit ? '#7b8794' : spec.face, o.hit ? '#9aa5b1' : spec.top);
-    if (o.type === 'barrier') {
-      // Hazard stripes double as a form-constancy cue: same shape, any distance.
-      const a = this.project(o.lane - spec.w / 2, spec.h1 * 0.55, o.z);
-      const b = this.project(o.lane + spec.w / 2, spec.h1 * 0.55, o.z);
-      this.ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      this.ctx.lineWidth = Math.max(2, 10 * a.s);
-      this.ctx.beginPath();
-      this.ctx.moveTo(a.x, a.y);
-      this.ctx.lineTo(b.x, b.y);
-      this.ctx.stroke();
-    }
+    // Stop drawing just after the runner passes, and fade out over the last
+    // stretch: without this, an obstacle sliding toward the camera balloons to
+    // fill the screen.
+    const exit = PLAYER_Z - 1.5;
+    if (o.z > FAR + 4 || o.z < exit) return;
+    const ctx = this.ctx;
+    const alpha = Math.min(1, (o.z - exit) / 1.5);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const dim = o.hit;
+    this._box(o.lane, o.z, spec, dim ? '#7b8794' : spec.face, dim ? '#9aa5b1' : spec.top);
+
+    const mid = (spec.h0 + spec.h1) / 2;
+    const pos = this.project(o.lane, mid, o.z);
+    // Sized to the lane, not to the obstacle's height: a two-unit-tall animal
+    // drawn at full height would spill across its neighbours.
+    const size = Math.min(
+      spec.w * 1.05 * this.unit * pos.s,
+      (spec.h1 - spec.h0) * 1.15 * this.unit * pos.s,
+      this.h * 0.32,
+    );
+    this._emoji(o.emoji, pos.x, pos.y, size);
+    ctx.restore();
+  }
+
+  _emoji(glyph, x, y, size) {
+    if (!glyph || size < 6) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.font = `${Math.round(size)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(glyph, x, y);
+    ctx.restore();
   }
 
   _box(lane, z, spec, face, top) {
     const ctx = this.ctx;
-    if (z > FAR + 4 || z < -5) return;
     const zn = Math.max(z, -0.85);
     const zf = Math.max(z + spec.depth, -0.8);
     const hw = spec.w / 2;
@@ -490,42 +683,60 @@ export class RunnerGame {
   }
 
   _drawPickup(p) {
-    const ctx = this.ctx;
-    if (p.z > FAR + 4 || p.z < -4) return;
+    if (p.z > FAR + 4 || p.z < PLAYER_Z - 1.5) return;
     const pos = this.project(p.lane, p.y, Math.max(p.z, -0.8));
+    const bob = Math.sin(p.spin * 1.6) * 4 * pos.s;
     if (p.kind === 'coin') {
-      const r = Math.max(2, 0.17 * this.unit * pos.s);
-      const squash = Math.abs(Math.cos(p.spin)); // cheap spin, no sprite needed
-      ctx.fillStyle = '#ffd166';
-      ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y, Math.max(1, r * squash), r, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#c99a20';
-      ctx.lineWidth = Math.max(1, r * 0.22);
-      ctx.stroke();
+      this._emoji(p.emoji, pos.x, pos.y + bob, 0.42 * this.unit * pos.s);
     } else {
-      const r = Math.max(3, 0.32 * this.unit * pos.s);
-      const bob = Math.sin(p.spin * 1.6) * r * 0.25;
+      const ctx = this.ctx;
+      const r = Math.max(3, 0.34 * this.unit * pos.s);
       ctx.save();
-      ctx.translate(pos.x, pos.y + bob);
-      ctx.fillStyle = '#4cc9f0';
-      ctx.shadowColor = '#4cc9f0';
+      ctx.shadowColor = '#ffd166';
       ctx.shadowBlur = r;
-      ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.lineTo(r * 0.8, -r * 0.4);
-      ctx.lineTo(r * 0.8, r * 0.35);
-      ctx.lineTo(0, r);
-      ctx.lineTo(-r * 0.8, r * 0.35);
-      ctx.lineTo(-r * 0.8, -r * 0.4);
-      ctx.closePath();
-      ctx.fill();
+      this._emoji(p.emoji, pos.x, pos.y + bob, r * 2);
       ctx.restore();
-      // Arrow prompt: this one is collected by stretching, not by running into it.
+      // Prompt: this one is collected by stretching, not by running into it.
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.font = `bold ${Math.max(9, r * 0.8)}px system-ui, sans-serif`;
+      ctx.font = `bold ${Math.max(10, r * 0.9)}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
-      ctx.fillText('↑', pos.x, pos.y - r * 1.5);
+      ctx.fillText('↑', pos.x, pos.y - r * 1.6);
+    }
+  }
+
+  _drawGate() {
+    const ctx = this.ctx;
+    const g = this.gate;
+    const z = Math.max(g.z, -0.8);
+    const postW = 0.22;
+    for (const side of [-1, 1]) {
+      const x = side * 1.5;
+      const bottom = this.project(x, 0, z);
+      const top = this.project(x, 2.4, z);
+      const w = Math.max(3, postW * this.unit * bottom.s);
+      ctx.fillStyle = '#4cc9f0';
+      ctx.fillRect(bottom.x - w / 2, top.y, w, bottom.y - top.y);
+    }
+    const lintelL = this.project(-1.6, 2.4, z);
+    const lintelR = this.project(1.6, 2.4, z);
+    const thickness = Math.max(4, 0.25 * this.unit * lintelL.s);
+    ctx.fillStyle = '#4cc9f0';
+    ctx.fillRect(lintelL.x, lintelL.y - thickness, lintelR.x - lintelL.x, thickness);
+
+    const centre = this.project(0, 1.5, z);
+    this._emoji(shapeEmoji(g.shape), centre.x, centre.y, 0.9 * this.unit * centre.s);
+
+    if (g.arrived && g.progress > 0) {
+      const barW = this.w * 0.4;
+      const barH = 14;
+      const x = (this.w - barW) / 2;
+      const y = centre.y + 0.75 * this.unit * centre.s;
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      roundRect(ctx, x, y, barW, barH, barH / 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffd166';
+      roundRect(ctx, x, y, barW * Math.min(1, g.progress), barH, barH / 2);
+      ctx.fill();
     }
   }
 
@@ -574,15 +785,20 @@ export class RunnerGame {
     roundRect(ctx, base.x - width / 2, base.y - height, width, height - legLen * 0.2, width * 0.35);
     ctx.fill();
 
-    // Arms go overhead on a stretch, which mirrors what the child just did.
+    // Arms go overhead on a jump, which mirrors what the child just did.
     ctx.strokeStyle = '#e0a832';
     ctx.lineWidth = Math.max(3, width * 0.28);
     const shoulderY = base.y - height * 0.78;
     for (const dir of [1, -1]) {
       ctx.beginPath();
       ctx.moveTo(base.x + dir * width * 0.35, shoulderY);
-      if (p.y > 0.01) ctx.lineTo(base.x + dir * width * 0.9, shoulderY - height * 0.42);
-      else ctx.lineTo(base.x + dir * -swing * width * 0.7, shoulderY + height * 0.3);
+      if (p.y > 0.01) {
+        ctx.lineTo(base.x + dir * width * 0.9, shoulderY - height * 0.42);
+      } else {
+        // Each arm stays on its own side and swings a little, rather than
+        // crossing the body.
+        ctx.lineTo(base.x + dir * width * (0.55 - swing * 0.25), shoulderY + height * 0.3);
+      }
       ctx.stroke();
     }
 
@@ -602,11 +818,35 @@ export class RunnerGame {
     }
     ctx.globalAlpha = 1;
   }
+
+  _drawPopups() {
+    const ctx = this.ctx;
+    for (const p of this.popups) {
+      ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+      ctx.fillStyle = p.color;
+      ctx.font = `bold ${Math.round(this.h * 0.06)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(p.text, p.x, p.y);
+    }
+    ctx.globalAlpha = 1;
+  }
 }
 
 // ------------------------------------------------------------------ helpers
 
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+function fruit(lane, z, y) {
+  return {
+    kind: 'coin', lane, z, y,
+    spin: Math.random() * 6,
+    emoji: FRUIT[Math.floor(Math.random() * FRUIT.length)],
+  };
+}
+
+function shapeEmoji(shape) {
+  return { cow: '\u{1F404}', cat: '\u{1F431}', cobra: '\u{1F40D}', star: '⭐' }[shape] || '\u{1F9D8}';
+}
 
 function quad(ctx, a, b, c, d) {
   ctx.beginPath();

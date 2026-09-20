@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0d1b2a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="Motion-tracked endless runner for paediatric occupational therapy: jump, duck, dodge and stretch to integrate primitive reflexes.">
+<meta name="description" content="Motion-tracked endless runner for paediatric occupational therapy: jump, duck, dodge, stretch and hold yoga poses.">
 <title>Sensory Runner</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -22,7 +22,7 @@
 
   <div id="hud" class="hidden">
     <div class="hud-chip" id="hud-score">0</div>
-    <div class="hud-chip" id="hud-coins">&#9679; 0</div>
+    <div class="hud-chip" id="hud-coins">&#127822; 0</div>
     <div class="hud-chip" id="hud-move">Ready</div>
   </div>
 
@@ -32,45 +32,108 @@
   </div>
 
   <div id="overlay">
+
+    <!-- ---------------------------------------------------------- menu -->
     <div class="panel" id="panel-start">
       <h1>Sensory Runner</h1>
-      <p class="tagline">Move your whole body to play. Jump, duck, step and stretch.</p>
+      <p class="tagline">Move your whole body to play.</p>
       <ul class="legend">
-        <li><b>Jump</b> &mdash; hop up to clear the red barriers</li>
-        <li><b>Duck</b> &mdash; squat low to slide under the bars</li>
-        <li><b>Step left / right</b> &mdash; move sideways to change lanes</li>
-        <li><b>Stretch up</b> &mdash; both arms overhead to grab the shield</li>
+        <li><span class="ico">&#129418;</span><b>Jump</b> over the ground animals</li>
+        <li><span class="ico">&#129414;</span><b>Duck</b> under the flying ones</li>
+        <li><span class="ico">&#128047;</span><b>Step aside</b> for the big ones</li>
+        <li><span class="ico">&#11088;</span><b>Stretch up</b> to grab the star</li>
+        <li><span class="ico">&#129420;</span><b>Hold a pose</b> at the yoga gate</li>
       </ul>
+
+      <div class="field">
+        <span class="field-label">Speed</span>
+        <div class="segmented" id="speed-picker" role="group" aria-label="Speed">
+          <button type="button" data-speed="slow">Slow</button>
+          <button type="button" data-speed="medium" class="on">Medium</button>
+          <button type="button" data-speed="fast">Fast</button>
+        </div>
+      </div>
+
+      <div class="field toggles">
+        <label><input type="checkbox" id="opt-practice" checked> Practise the moves first</label>
+        <label><input type="checkbox" id="opt-voice" checked> Speak the instructions</label>
+        <label><input type="checkbox" id="opt-gates" checked> Yoga gates during the run</label>
+      </div>
+
       <button id="btn-start" class="primary">Start with camera</button>
       <button id="btn-keys" class="ghost">Play with keyboard instead</button>
+      <button id="btn-progress" class="ghost">See progress</button>
       <p class="fineprint">Stand about 2&ndash;3 m back so your whole body is in view. Nothing is recorded or uploaded &mdash; all tracking happens on this device.</p>
     </div>
 
+    <!-- ------------------------------------------------------- loading -->
     <div class="panel hidden" id="panel-loading">
       <h2 id="loading-title">Waking up the camera&hellip;</h2>
       <div class="spinner"></div>
       <p id="loading-note">First run downloads the tracking model (about 6 MB). After that it works offline.</p>
     </div>
 
-    <div class="panel hidden" id="panel-calibrate">
-      <h2>Stand tall like a tree</h2>
-      <p class="tagline">Feet still, arms by your side, look at the screen.</p>
-      <div class="ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"></circle><circle id="ring-fill" class="ring-fg" cx="60" cy="60" r="52"></circle></svg><span id="calib-count">3</span></div>
-      <p id="calib-hint" class="fineprint">Looking for you&hellip;</p>
+    <!-- ------------------------------------------------- practice room -->
+    <div class="panel wide hidden" id="panel-practice">
+      <div class="practice-emoji" id="practice-emoji">&#127939;</div>
+      <h2 id="practice-title">Find your spot</h2>
+      <p class="tagline" id="practice-message">Step back so I can see all of you.</p>
+      <div class="holdbar hidden" id="practice-hold"><div id="practice-hold-fill"></div></div>
+      <div class="checklist" id="practice-checklist"></div>
+      <div class="bigcount hidden" id="practice-count">3</div>
+      <button id="btn-skip-practice" class="ghost">Skip practice &rarr;</button>
     </div>
 
-    <div class="panel hidden" id="panel-over">
+    <!-- ----------------------------------------------------- yoga gate -->
+    <div class="panel hidden" id="panel-gate">
+      <div class="practice-emoji" id="gate-emoji">&#129420;</div>
+      <h2 id="gate-title">Cow pose</h2>
+      <p class="tagline" id="gate-cue">Hands and knees. Drop your tummy and look up!</p>
+      <div class="holdbar"><div id="gate-hold-fill"></div></div>
+      <p class="fineprint" id="gate-hint">Hold it while the bar fills up.</p>
+      <button id="btn-skip-gate" class="ghost">Skip this pose</button>
+    </div>
+
+    <!-- ---------------------------------------------------- run report -->
+    <div class="panel wide hidden" id="panel-over">
       <h2 id="over-title">Great running!</h2>
       <div class="scoreline"><span id="over-score">0</span><small>metres</small></div>
       <div class="statgrid">
-        <div><b id="stat-jumps">0</b><small>jumps</small></div>
-        <div><b id="stat-ducks">0</b><small>squats</small></div>
-        <div><b id="stat-lanes">0</b><small>side steps</small></div>
-        <div><b id="stat-reaches">0</b><small>big stretches</small></div>
+        <div><b id="stat-jumps">0</b><small>&#129418; jumps</small></div>
+        <div><b id="stat-ducks">0</b><small>&#129414; squats</small></div>
+        <div><b id="stat-lanes">0</b><small>&#128047; side steps</small></div>
+        <div><b id="stat-reaches">0</b><small>&#11088; stretches</small></div>
+        <div><b id="stat-poses">0</b><small>&#129420; poses</small></div>
+        <div><b id="stat-fruit">0</b><small>&#127822; fruit</small></div>
+      </div>
+      <div class="exercise">
+        <div><b id="stat-time">0:00</b><small>moving</small></div>
+        <div><b id="stat-kcal">0</b><small>kcal (est.)</small></div>
+        <div><b id="stat-met">0</b><small>effort (MET)</small></div>
       </div>
       <p id="over-rest" class="tagline">Rest break: breathe in as the circle grows, out as it shrinks.</p>
       <div id="breath"><div id="breath-dot"></div></div>
       <button id="btn-again" class="primary">Run again</button>
+      <button id="btn-menu" class="ghost">Back to menu</button>
+    </div>
+
+    <!-- ----------------------------------------------------- progress -->
+    <div class="panel wide hidden" id="panel-progress">
+      <h2>Progress</h2>
+      <h3 class="subhead">Today</h3>
+      <div class="exercise" id="today-grid"></div>
+      <h3 class="subhead">All time</h3>
+      <div class="exercise" id="alltime-grid"></div>
+      <h3 class="subhead">Recent sessions</h3>
+      <div class="sessions" id="session-list"></div>
+      <p class="fineprint">
+        Calories are a rough estimate from how much the child moved, using the
+        standard MET equation for a <span id="child-profile">5-year-old, 18 kg</span>
+        child. Useful for comparing one session with another, not a measurement.
+        Stored only on this device.
+      </p>
+      <button id="btn-progress-back" class="primary">Back</button>
+      <button id="btn-clear" class="ghost">Clear history</button>
     </div>
   </div>
 </div>
