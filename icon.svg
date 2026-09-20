@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Sensory Runner">
+  <rect width="512" height="512" rx="96" fill="#0d1b2a"/>
+  <path d="M96 400 L256 176 L416 400 Z" fill="#20303f"/>
+  <path d="M176 400 L256 288 L336 400 Z" fill="#2f4457"/>
+  <circle cx="256" cy="150" r="38" fill="#ffe9b0"/>
+  <rect x="226" y="196" width="60" height="110" rx="28" fill="#ffd166"/>
+  <g stroke="#4cc9f0" stroke-width="26" stroke-linecap="round" fill="none">
+    <path d="M232 306 L196 380"/>
+    <path d="M280 306 L318 372"/>
+    <path d="M230 214 L168 178"/>
+    <path d="M282 214 L346 180"/>
+  </g>
+</svg>
