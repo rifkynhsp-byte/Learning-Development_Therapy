@@ -10,6 +10,8 @@ const newGame = (opts = {}) => {
   const game = new RunnerGame(stubCanvas(), silentSfx, opts.onEvent || (() => {}));
   // Yoga gates freeze the world waiting for a pose the tests cannot strike.
   game.gatesEnabled = opts.gates ?? false;
+  // Walls need a shape fed in, which most tests do not care about.
+  game.wallsEnabled = opts.walls ?? false;
   return game;
 };
 
@@ -298,4 +300,137 @@ test('every obstacle carries an animal and every fruit a fruit', () => {
   assert.ok(game.obstacles.length + game.pickups.length > 0);
   for (const o of game.obstacles) assert.ok(o.emoji, `${o.type} has art`);
   for (const p of game.pickups) assert.ok(p.emoji, `${p.kind} has art`);
+});
+
+// ------------------------------------------------------------- letter walls
+
+/**
+ * Run until the first wall appears. Animals are swept aside as we go: these
+ * tests are about the wall, and a crash on the way there proves nothing.
+ */
+function toWall(game) {
+  for (let f = 0; f < 60 * 240 && !game.walls.length; f++) {
+    game.obstacles = [];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false, shape: null });
+  }
+  return game.walls[0];
+}
+
+/** Carry a wall to its verdict while holding `shape`. */
+function resolveWall(game, wall, shape, frames = 60 * 30) {
+  for (let f = 0; f < frames && !wall.resolved; f++) {
+    game.obstacles = [];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false, shape });
+  }
+  return wall;
+}
+
+test('a letter wall arrives early, not minutes in', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  assert.ok(wall, 'a wall appears');
+  assert.ok(game.distance < 120, `first wall by 120 m, got ${Math.round(game.distance)} m`);
+  assert.ok(['T', 'Y', 'O', 'X', 'L', 'A'].includes(wall.letter));
+});
+
+test('making the letter passes the wall and pays a bonus', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  const coinsBefore = game.coins;
+  resolveWall(game, wall, wall.letter);
+  assert.equal(wall.resolved, true);
+  assert.equal(wall.matched, true);
+  assert.equal(game.stats.letters, 1);
+  assert.ok(game.coins > coinsBefore, 'fruit is awarded');
+  assert.ok(game.combo > 0, 'and it builds the streak');
+});
+
+test('missing the letter costs the streak but never the run', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  game.combo = 12;
+  game.multiplier = 3;
+  resolveWall(game, wall, 'stand');
+  assert.equal(wall.matched, false);
+  assert.equal(game.running, true, 'a missed letter is never fatal');
+  assert.equal(game.combo, 0, 'but the streak resets');
+  assert.equal(game.multiplier, 1);
+});
+
+test('the shape only has to be held somewhere in the approach', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  // Strike the pose early, then drop it well before the wall lands.
+  for (let f = 0; f < 30; f++) {
+    game.obstacles = [];
+    game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false, shape: wall.letter });
+  }
+  resolveWall(game, wall, 'stand');
+  assert.equal(wall.matched, true, 'an early shape still counts');
+});
+
+test('a Y is close enough for an X wall', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  wall.letter = 'X';
+  wall.matched = false;
+  resolveWall(game, wall, 'Y');
+  assert.equal(wall.matched, true);
+});
+
+test('the HUD knows which letter is coming and how close it is', () => {
+  const game = newGame({ walls: true });
+  game.start();
+  const wall = toWall(game);
+  const next = game.nextChallenge();
+  assert.equal(next.type, 'letter');
+  assert.equal(next.letter, wall.letter);
+  assert.ok(next.distance > 0);
+});
+
+// ------------------------------------------------------------- zones, combo
+
+test('the scene changes as the child runs further', () => {
+  const zones = [];
+  const game = newGame({ onEvent: (name, p) => { if (p && p.zone) zones.push(p.zone); } });
+  game.start();
+  playWell(game, 240);
+  assert.ok(zones.length >= 2, `expected to pass through several places, saw ${zones.join()}`);
+  assert.notEqual(zones[0], zones[1], 'and they differ');
+});
+
+test('each zone brings its own scenery', () => {
+  const game = newGame();
+  game.start();
+  playWell(game, 40);
+  assert.ok(game.scenery.length > 0, 'the roadside is not empty');
+  const themeProps = new Set(game.theme.props);
+  for (const prop of game.scenery) assert.ok(themeProps.has(prop.emoji), 'props match the zone');
+});
+
+test('a streak raises the multiplier and a crash clears it', () => {
+  const game = newGame();
+  game.start();
+  for (let i = 0; i < 10; i++) game._addCombo();
+  assert.equal(game.multiplier, 3);
+  assert.equal(game.bestCombo, 10);
+  game._gameOver();
+  assert.equal(game.combo, 0);
+  assert.equal(game.multiplier, 1);
+  assert.equal(game.bestCombo, 10, 'the best is kept for the report');
+});
+
+test('fruit pays the multiplier', () => {
+  const game = newGame();
+  game.start();
+  for (let i = 0; i < 10; i++) game._addCombo();      // x3
+  game.pickups = [{ kind: 'coin', lane: 0, z: PLAYER_Z, y: 0.75, spin: 0, emoji: '\u{1F34E}' }];
+  const before = game.coins;
+  game.update(1 / 60, { lane: 0, ducking: false, jump: false, reach: false });
+  assert.equal(game.coins - before, 3);
 });

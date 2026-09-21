@@ -68,10 +68,10 @@ test('cobra is told apart from a table top', () => {
   assert.equal(matchesShape(cobra, 'cow'), false);
 });
 
-test('a star needs both wide arms and wide feet', () => {
-  assert.equal(detectShape(star).shape, 'star');
+test('a star shape reads as the letter X', () => {
+  assert.equal(detectShape(star).shape, 'X');
   assert.equal(detectShape(standing).shape, 'stand');
-  assert.equal(matchesShape(standing, 'star'), false);
+  assert.equal(matchesShape(standing, 'X'), false);
 });
 
 test('standing is never mistaken for a floor pose', () => {
@@ -109,4 +109,87 @@ test('a pose never held makes no progress', () => {
   for (let f = 0; f < 120; f++) hold.update(standing, 1 / 60);
   assert.equal(hold.held, 0);
   assert.equal(hold.everMatched, false);
+});
+
+// --------------------------------------------------------------- body letters
+
+/**
+ * Standing, facing the camera, with the arms placed by hand. Shoulders span
+ * 0.16 of the frame and the torso is 0.20 tall, so one shoulder width is about
+ * 0.16 and a full arm reach is about 0.35 from the centre line.
+ */
+function letterPose({ wristL, wristR, ankleSpread = 0.08 }) {
+  const half = ankleSpread / 2;
+  return pose({
+    0: [0.50, 0.28],
+    11: [0.42, 0.35], 12: [0.58, 0.35],
+    15: wristL, 16: wristR,
+    23: [0.46, 0.55], 24: [0.54, 0.55],
+    25: [0.50 - half, 0.75], 26: [0.50 + half, 0.75],
+    27: [0.50 - half, 0.95], 28: [0.50 + half, 0.95],
+  });
+}
+
+test('T: arms straight out at shoulder height', () => {
+  assert.equal(detectShape(letterPose({ wristL: [0.15, 0.35], wristR: [0.85, 0.35] })).shape, 'T');
+});
+
+test('Y: arms up and out, feet together', () => {
+  assert.equal(detectShape(letterPose({ wristL: [0.28, 0.18], wristR: [0.72, 0.18] })).shape, 'Y');
+});
+
+test('O: hands meeting above the head', () => {
+  assert.equal(detectShape(letterPose({ wristL: [0.47, 0.14], wristR: [0.53, 0.14] })).shape, 'O');
+});
+
+test('X: arms up and out with the feet apart', () => {
+  assert.equal(
+    detectShape(letterPose({ wristL: [0.20, 0.18], wristR: [0.80, 0.18], ankleSpread: 0.30 })).shape,
+    'X');
+});
+
+test('A: feet wide, arms low and angled away', () => {
+  assert.equal(
+    detectShape(letterPose({ wristL: [0.26, 0.62], wristR: [0.74, 0.62], ankleSpread: 0.30 })).shape,
+    'A');
+});
+
+test('L: one arm out sideways, the other down', () => {
+  assert.equal(detectShape(letterPose({ wristL: [0.15, 0.35], wristR: [0.56, 0.62] })).shape, 'L');
+  assert.equal(detectShape(letterPose({ wristL: [0.44, 0.62], wristR: [0.85, 0.35] })).shape, 'L');
+});
+
+test('ordinary standing is not read as any letter', () => {
+  assert.equal(detectShape(letterPose({ wristL: [0.44, 0.60], wristR: [0.56, 0.60] })).shape, 'stand');
+});
+
+test('a Y is accepted for an X and the other way round', () => {
+  const y = letterPose({ wristL: [0.28, 0.18], wristR: [0.72, 0.18] });
+  assert.equal(matchesShape(y, 'X'), true, 'close enough: arms are up and out');
+  assert.equal(matchesShape(y, 'T'), false, 'but a Y is not a T');
+});
+
+// ------------------------------------------------------------ cobra, loosened
+
+test('cobra accepts a loose J shape, not just a full push-up', () => {
+  // Lying down, only a small lift through the chest.
+  const lazyCobra = pose({
+    0: [0.40, 0.70],
+    11: [0.46, 0.74], 12: [0.46, 0.74],
+    15: [0.52, 0.82], 16: [0.52, 0.82],
+    23: [0.66, 0.82], 24: [0.66, 0.82],
+    25: [0.76, 0.84], 26: [0.76, 0.84],
+    27: [0.86, 0.84], 28: [0.86, 0.84],
+  });
+  assert.equal(detectShape(lazyCobra).shape, 'cobra');
+});
+
+test('cobra still needs the child on the floor, not standing', () => {
+  assert.equal(matchesShape(standing, 'cobra'), false);
+  assert.equal(matchesShape(letterPose({ wristL: [0.15, 0.35], wristR: [0.85, 0.35] }), 'cobra'), false);
+});
+
+test('hands and knees is still cow or cat, never cobra', () => {
+  assert.equal(matchesShape(quadruped(0.44), 'cobra'), false);
+  assert.equal(matchesShape(quadruped(0.53), 'cobra'), false);
 });
