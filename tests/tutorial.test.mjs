@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Tutorial, wholeBodyVisible } from '../js/tutorial.js';
+import { Tutorial, wholeBodyVisible, DRILLS } from '../js/tutorial.js';
 import { body } from './helpers.mjs';
 
 const idle = { present: true, lane: 0, ducking: false, jump: false, reach: false };
@@ -110,4 +110,20 @@ test('with no camera it skips framing and goes straight to the drills', async ()
   await Promise.resolve(); await Promise.resolve();
   t.update(1 / 60, idle, null);
   assert.equal(t.phase, 'drill', 'framing is not a dead end without a camera');
+});
+
+test('the practice room teaches the letters too', () => {
+  const keys = DRILLS.map((d) => d.key);
+  assert.ok(keys.includes('T') && keys.includes('Y'), 'letters are drilled before a wall arrives');
+  assert.ok(keys.includes('cow') && keys.includes('cobra'), 'and so are the floor poses');
+  // A letter drill is a held shape, like the floor poses.
+  assert.equal(DRILLS.find((d) => d.key === 'T').shape, 'T');
+});
+
+test('every drill has something to say and something to show', () => {
+  for (const drill of DRILLS) {
+    assert.ok(drill.cue && drill.cue.length > 8, `${drill.key} has a spoken cue`);
+    assert.ok(drill.hint && drill.hint.length > 8, `${drill.key} has a plainer hint`);
+    assert.ok(drill.emoji, `${drill.key} has an icon`);
+  }
 });

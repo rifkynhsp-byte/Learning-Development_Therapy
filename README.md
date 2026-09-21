@@ -13,11 +13,47 @@ Every movement the game asks for is an occupational-therapy movement:
 | 🦇 🐝 🦅 flying at head height | **Squats** low and holds | Core stability, sustained leg strength (STNR) |
 | 🐯 🐘 🦏 filling a lane | **Steps sideways** into the open lane | Weight shift, bilateral coordination, crossing the midline (ATNR) |
 | ⭐ hanging high | **Stretches both arms overhead** | Upper-body extension, midline awareness |
-| Yoga gate | **Holds Cow, Cat, Cobra or Star** | Reflex integration: quadruped work (STNR), spinal extension, wide-body Star (spinal Galant) |
+| **Letter wall** | **Makes the letter with their body** to fit through the hole | Motor planning, bilateral coordination, body awareness — and the letter itself |
+| Yoga gate | **Holds Cow, Cat or Cobra** | Reflex integration: quadruped work (STNR), spinal extension |
 | Rest screen | Follows the breathing circle | Coming back down after exertion |
 
 A child who cannot yet jump with both feet can drive the same mechanic by
 **marching** — lifting one knee high counts as a jump.
+
+### Letter walls
+
+A wall comes down the track with a letter-shaped hole in it, and the only way
+through is to make that letter with your body. The first one arrives inside the
+first hundred metres and another every hundred or so after that, which is what
+keeps the run demanding something of the whole body rather than just the legs.
+
+| Letter | The shape |
+| --- | --- |
+| **T** | Arms straight out to the sides |
+| **Y** | Arms up high in a V |
+| **O** | Hands together above the head |
+| **X** | Arms up wide *and* feet wide |
+| **A** | Feet wide, arms down and angled out |
+| **L** | One arm straight out, the other down |
+
+A wall is never fatal. Missing the shape costs the streak and the bonus and the
+run carries on — being sent back to the menu over a letter you could not make
+in time is how a child decides the game is against them. The shape only has to
+be held *somewhere* during the approach, not at the exact moment of impact, and
+a Y counts for an X and vice versa.
+
+### Streaks
+
+Clearing things without a mistake builds a streak, and every fifth one raises
+the fruit multiplier, up to ×5. A crash or a missed wall resets it. The best
+streak of the session is on the report at the end.
+
+### Zones
+
+The run passes through five places — City, Jungle, Desert, Snow, Space — each
+with its own sky, skyline, road colour and roadside scenery, changing about
+every two minutes at Medium. A background that never changes stops being
+noticed, and noticing is half of what this is training.
 
 ## Playing it
 
@@ -25,8 +61,9 @@ A child who cannot yet jump with both feet can drive the same mechanic by
 2. Choose a speed, then tap **Start with camera** and allow camera access.
 3. The **practice room** opens. It waits until the whole child is in frame,
    takes a three-second standing calibration, then asks for one movement at a
-   time — jump, duck, step right, step left, stretch, Cow, Cobra — speaking each
-   instruction out loud and ticking it off when it sees it.
+   time — jump, duck, step right, step left, stretch, letter T, letter Y, Cow,
+   Cobra — speaking each instruction out loud and ticking it off when it sees
+   it.
 4. When the checklist is done, a countdown starts the run.
 
 No drill can trap the child: each one times out after 18 seconds, says something
@@ -100,7 +137,7 @@ child to tap out of.
 
 ```
 js/pose.js      camera + MediaPipe landmarks -> jump, duck, lane, stretch
-js/shapes.js    held body shapes -> Cow, Cat, Cobra, Star
+js/shapes.js    held body shapes -> Cow, Cat, Cobra and the letters T Y O X L A
 js/tutorial.js  the practice room: framing, calibration, one drill at a time
 js/game.js      three-lane runner, pseudo-3D projection on a 2D canvas
 js/coach.js     spoken instructions and praise, via the browser's own voice
@@ -132,6 +169,17 @@ relative to the lowest thing in frame. Cat and Cow are told apart at the head,
 which the model tracks far more reliably than the curve of a small child's
 spine, and a neutral table top is accepted for either — getting onto hands and
 knees is most of the work.
+
+**Cobra** asks only that the child is down on the floor, not on all fours, with
+some lift through the chest. The strict version — hips pinned, legs flat, chest
+well up — turned out to be more than a five-year-old will hold, so a loose J
+shape counts.
+
+**Body letters** are judged facing the camera, from where each wrist sits
+relative to the shoulders (above or below, near the body or far out) and how far
+apart the feet are, all in shoulder widths. The checks run from the most
+constrained shape down, because the letters overlap: an O is a Y with the hands
+brought together, and an X is a Y with the feet apart.
 
 **Timing tolerance.** A crash is never instant. Jumping up to 0.75 s before an
 obstacle still counts, and so does jumping up to 0.3 s after contact, because

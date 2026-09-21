@@ -7,7 +7,7 @@ import { PoseController } from './pose.js';
 import { RunnerGame, SPEED_PRESETS } from './game.js';
 import { Tutorial } from './tutorial.js';
 import { Coach } from './coach.js';
-import { ShapeHold, SHAPES } from './shapes.js';
+import { ShapeHold, SHAPES, detectShape, LETTERS } from './shapes.js';
 import { SessionStats, CHILD, saveSession, loadHistory, aggregate, clearHistory } from './stats.js';
 
 const $ = (id) => document.getElementById(id);
@@ -26,6 +26,8 @@ const ui = {
   score: $('hud-score'),
   coins: $('hud-coins'),
   move: $('hud-move'),
+  combo: $('hud-combo'),
+  challenge: $('challenge'),
   preview: $('preview'),
 };
 
@@ -41,12 +43,14 @@ let wakeLock = null;
 let lastFrame = performance.now();
 let moveLabelUntil = 0;
 let lastRunDistance = 0;
+let currentShape = null;
+let shapeCheckedAt = 0;
 
 const settings = loadSettings();
 applySettings();
 
 /** Keyboard fallback so the game is playable (and testable) without a camera. */
-const keys = { lane: 0, ducking: false, jump: false, reach: false, confirm: false };
+const keys = { lane: 0, ducking: false, jump: false, reach: false, confirm: false, shape: null, shapeUntil: 0 };
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -56,7 +60,11 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') keys.jump = true;
   else if (e.key === 'Shift') keys.reach = true;
   else if (e.key === 'Enter') keys.confirm = true;
-  else return;
+  else if (LETTERS.includes(e.key.toUpperCase())) {
+    // Keyboard stand-in for striking a pose: press the letter itself.
+    keys.shape = e.key.toUpperCase();
+    keys.shapeUntil = performance.now() + 1500;
+  } else return;
   e.preventDefault();
 });
 
@@ -69,7 +77,7 @@ window.addEventListener('keyup', (e) => {
 // ------------------------------------------------------------------ settings
 
 function loadSettings() {
-  const defaults = { speed: 'medium', practice: true, voice: true, gates: true };
+  const defaults = { speed: 'medium', practice: true, voice: true, gates: true, walls: true };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -84,6 +92,7 @@ function saveSettings() {
 function applySettings() {
   game.setSpeedPreset(settings.speed);
   game.gatesEnabled = settings.gates;
+  game.wallsEnabled = settings.walls;
   coach.muted = !settings.voice;
   stats.speedLabel = settings.speed;
   for (const btn of $('speed-picker').querySelectorAll('button')) {
@@ -92,6 +101,7 @@ function applySettings() {
   $('opt-practice').checked = settings.practice;
   $('opt-voice').checked = settings.voice;
   $('opt-gates').checked = settings.gates;
+  $('opt-walls').checked = settings.walls;
 }
 
 $('speed-picker').addEventListener('click', (e) => {
@@ -103,7 +113,8 @@ $('speed-picker').addEventListener('click', (e) => {
   sfx.lane();
 });
 
-for (const [id, key] of [['opt-practice', 'practice'], ['opt-voice', 'voice'], ['opt-gates', 'gates']]) {
+for (const [id, key] of [['opt-practice', 'practice'], ['opt-voice', 'voice'],
+                         ['opt-gates', 'gates'], ['opt-walls', 'walls']]) {
   $(id).addEventListener('change', (e) => {
     settings[key] = e.target.checked;
     saveSettings();
@@ -244,6 +255,7 @@ function startRun() {
   ui.hud.classList.remove('hidden');
   game.setSpeedPreset(settings.speed);
   game.gatesEnabled = settings.gates;
+  game.wallsEnabled = settings.walls;
   game.start();
   setMoveLabel('Go!');
   coach.say('Ready, set, go!');
@@ -261,6 +273,7 @@ function openGate(shape) {
   $('gate-hint').textContent = pose
     ? 'Hold it while the bar fills up.'
     : 'No camera: press Enter to pass the pose.';
+  ui.challenge.classList.add('hidden');
   show(ui.gate);
   coach.say(spec.cue);
 }
@@ -307,8 +320,37 @@ function finishGate(passed) {
 function onGameEvent(label, payload = {}) {
   if (label === '__gameover__') { endRun(); return; }
   if (payload.gate) { openGate(payload.gate); return; }
+  if (payload.wall) { coach.say(SHAPES[payload.wall].cue); }
+  if (payload.zone) { coach.say(`Welcome to the ${label.replace('!', '')}!`, { interrupt: false }); }
+  if (payload.letter) { coach.say('Perfect!', { interrupt: false }); }
   if (payload.move && payload.move !== 'pose') stats.record(payload.move);
   setMoveLabel(label);
+}
+
+/**
+ * The wall prompt: the letter to make, how close it is, and whether the tracker
+ * can currently see that shape. Drawn as a HUD chip rather than an overlay so
+ * it never covers the wall the child is running at.
+ */
+function renderChallengeHud(input) {
+  const next = game.nextChallenge();
+  const chip = ui.challenge;
+  ui.combo.classList.toggle('hidden', game.multiplier < 2);
+  ui.combo.textContent = `\u{1F525} x${game.multiplier}`;
+
+  if (next.type !== 'letter') {
+    chip.classList.add('hidden');
+    return;
+  }
+  chip.classList.remove('hidden');
+  const matched = input.shape && SHAPES[next.letter] &&
+    (input.shape === next.letter || (next.letter === 'X' && input.shape === 'Y') ||
+     (next.letter === 'Y' && input.shape === 'X'));
+  chip.classList.toggle('matched', !!matched);
+  $('challenge-letter').textContent = next.letter;
+  $('challenge-cue').textContent = matched ? 'Hold it!' : SHAPES[next.letter].cue;
+  $('challenge-bar-fill').style.width =
+    `${Math.round(100 * Math.max(0, Math.min(1, 1 - next.distance / 55)))}%`;
 }
 
 function setMoveLabel(text) {
@@ -317,6 +359,8 @@ function setMoveLabel(text) {
 }
 
 function endRun() {
+  ui.challenge.classList.add('hidden');
+  ui.combo.classList.add('hidden');
   lastRunDistance = game.distance;
   stats.endRun(game.distance);
   stats.fruit += game.coins;
@@ -328,8 +372,9 @@ function endRun() {
   $('stat-ducks').textContent = String(game.stats.ducks);
   $('stat-lanes').textContent = String(game.stats.lanes);
   $('stat-reaches').textContent = String(game.stats.reaches);
-  $('stat-poses').textContent = String(game.stats.poses);
+  $('stat-poses').textContent = String(game.stats.poses + game.stats.letters);
   $('stat-fruit').textContent = String(game.coins);
+  $('stat-combo').textContent = String(game.bestCombo);
   $('stat-time').textContent = clock(s.seconds);
   $('stat-kcal').textContent = s.kcal.toFixed(1);
   $('stat-met').textContent = s.met.toFixed(1);
@@ -427,6 +472,7 @@ function frame(now) {
     ui.score.textContent = String(Math.floor(game.distance));
     ui.coins.textContent = `\u{1F34E} ${game.coins}`;
     if (now > moveLabelUntil) ui.move.textContent = game.shield > 0 ? '⭐ Shielded' : 'Run!';
+    renderChallengeHud(input);
   }
 }
 
@@ -440,16 +486,35 @@ function readInput() {
       ducking: p.present && p.ducking,
       jump: p.jump,
       reach: p.reach,
+      shape: heldShape(),
     };
   }
   if (pose) {
     // Camera is up but the baseline is not taken yet (still in the practice room).
-    return { present: pose.state.present, lane: 0, ducking: false, jump: false, reach: false };
+    return { present: pose.state.present, lane: 0, ducking: false, jump: false, reach: false, shape: heldShape() };
   }
-  const input = { present: true, lane: keys.lane, ducking: keys.ducking, jump: keys.jump, reach: keys.reach };
+  const shape = performance.now() < keys.shapeUntil ? keys.shape : null;
+  const input = {
+    present: true, lane: keys.lane, ducking: keys.ducking,
+    jump: keys.jump, reach: keys.reach, shape,
+  };
   keys.jump = false;
   keys.reach = false;
   return input;
+}
+
+/**
+ * The shape the child is holding right now. Classifying every frame is wasted
+ * work -- a held pose does not change in 16 ms -- so this runs at about 12 Hz
+ * and reuses the answer in between.
+ */
+function heldShape() {
+  const now = performance.now();
+  if (now - shapeCheckedAt > 80) {
+    shapeCheckedAt = now;
+    currentShape = pose && pose.landmarks ? detectShape(pose.landmarks).shape : null;
+  }
+  return currentShape;
 }
 
 requestAnimationFrame(frame);

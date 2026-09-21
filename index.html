@@ -24,6 +24,16 @@
     <div class="hud-chip" id="hud-score">0</div>
     <div class="hud-chip" id="hud-coins">&#127822; 0</div>
     <div class="hud-chip" id="hud-move">Ready</div>
+    <div class="hud-chip hidden" id="hud-combo">&#128293; x1</div>
+  </div>
+
+  <!-- Wall prompt. A chip, not a panel: it must never cover the oncoming wall. -->
+  <div id="challenge" class="hidden">
+    <div id="challenge-letter">T</div>
+    <div id="challenge-body">
+      <div id="challenge-cue">Make a T! Arms straight out to the sides.</div>
+      <div id="challenge-bar"><div id="challenge-bar-fill"></div></div>
+    </div>
   </div>
 
   <div id="preview" class="hidden">
@@ -43,6 +53,7 @@
         <li><span class="ico">&#128047;</span><b>Step aside</b> for the big ones</li>
         <li><span class="ico">&#11088;</span><b>Stretch up</b> to grab the star</li>
         <li><span class="ico">&#129420;</span><b>Hold a pose</b> at the yoga gate</li>
+        <li><span class="ico">&#10062;</span><b>Make the letter</b> to fit through the wall</li>
       </ul>
 
       <div class="field">
@@ -57,7 +68,8 @@
       <div class="field toggles">
         <label><input type="checkbox" id="opt-practice" checked> Practise the moves first</label>
         <label><input type="checkbox" id="opt-voice" checked> Speak the instructions</label>
-        <label><input type="checkbox" id="opt-gates" checked> Yoga gates during the run</label>
+        <label><input type="checkbox" id="opt-gates" checked> Yoga gates (Cow, Cat, Cobra)</label>
+        <label><input type="checkbox" id="opt-walls" checked> Letter walls (T, Y, O, X, L, A)</label>
       </div>
 
       <button id="btn-start" class="primary">Start with camera</button>
@@ -104,6 +116,7 @@
         <div><b id="stat-lanes">0</b><small>&#128047; side steps</small></div>
         <div><b id="stat-reaches">0</b><small>&#11088; stretches</small></div>
         <div><b id="stat-poses">0</b><small>&#129420; poses</small></div>
+        <div><b id="stat-combo">0</b><small>&#128293; best streak</small></div>
         <div><b id="stat-fruit">0</b><small>&#127822; fruit</small></div>
       </div>
       <div class="exercise">

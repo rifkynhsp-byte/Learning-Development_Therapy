@@ -14,6 +14,8 @@
  * not in the frame it landed on.
  */
 
+import { shapeSatisfies } from './shapes.js';
+
 const LANES = [-1, 0, 1];
 const DEPTH = 26;          // perspective falloff constant (higher = flatter)
 const PLAYER_Z = 3.5;      // the runner sits ahead of the camera, not on it,
@@ -72,11 +74,48 @@ const OBSTACLES = {
   },
 };
 
+/** A letter wall: full width, with a hole shaped like the letter. */
+const WALL = { h0: 0, h1: 2.6, depth: 0.4 };
+
 const FRUIT = ['\u{1F34E}', '\u{1F34C}', '\u{1F353}', '\u{1F347}', '\u{1F34A}',
                '\u{1F349}', '\u{1F95D}', '\u{1F34D}', '\u{1F352}', '\u{1F96D}'];
 
-const GATE_SHAPES = ['cow', 'cat', 'cobra', 'star'];
-const GATE_EVERY = 320;    // metres between yoga gates
+const GATE_SHAPES = ['cow', 'cat', 'cobra'];   // floor poses only; letters go on walls
+const FIRST_GATE = 150;    // metres before the first floor pose
+const GATE_EVERY = 280;
+const FIRST_WALL = 70;     // metres before the first letter wall
+const WALL_EVERY = 120;
+const WALL_LETTERS = ['T', 'Y', 'O', 'X', 'L', 'A'];
+
+/**
+ * Scenery. The run passes through five places rather than one endless street,
+ * because a background that never changes stops being noticed -- and noticing
+ * is half of what we are training. A zone lasts about two minutes at Medium.
+ */
+const ZONE_LENGTH = 260;
+
+const THEMES = [
+  { key: 'city', name: 'City', skyline: 'buildings',
+    sky: ['#12263f', '#1b4965', '#5fa8d3'], ground: '#16222f',
+    road: ['#20303f', '#2f4457'], far: '#0d1b2a',
+    props: ['\u{1F3E2}', '\u{1F3EC}', '\u{1F68F}', '\u{1F6A6}'] },
+  { key: 'jungle', name: 'Jungle', skyline: 'trees',
+    sky: ['#04230f', '#0f5132', '#5fbf6a'], ground: '#123320',
+    road: ['#2b4a30', '#3d6b45'], far: '#071a0f',
+    props: ['\u{1F334}', '\u{1F333}', '\u{1F99C}', '\u{1F33F}', '\u{1F412}'] },
+  { key: 'desert', name: 'Desert', skyline: 'dunes',
+    sky: ['#2b1d12', '#a6631b', '#f2c46b'], ground: '#3a2a18',
+    road: ['#5a4326', '#7a5c35'], far: '#241709',
+    props: ['\u{1F335}', '\u{1F42A}', '\u{1FAA8}', '\u{1F98E}'] },
+  { key: 'snow', name: 'Snow', skyline: 'mountains',
+    sky: ['#0f1f33', '#2a4a6b', '#cde6f7'], ground: '#1d2b3d',
+    road: ['#33475e', '#4a6480'], far: '#0b1522',
+    props: ['\u26C4', '\u{1F332}', '\u{1F3D4}\uFE0F', '\u2744\uFE0F'] },
+  { key: 'space', name: 'Space', skyline: 'stars',
+    sky: ['#03020c', '#0f0a24', '#2a1d52'], ground: '#0a0818',
+    road: ['#171432', '#241f4a'], far: '#03020a',
+    props: ['\u{1F680}', '\u{1F6F8}', '\u{1FA90}', '\u2B50', '\u{1F47D}'] },
+];
 
 export class RunnerGame {
   constructor(canvas, sfx, onEvent = () => {}) {
@@ -88,6 +127,7 @@ export class RunnerGame {
     this.speedPreset = 'medium';
     this.speedMultiplier = SPEED_PRESETS.medium.multiplier;
     this.gatesEnabled = true;
+    this.wallsEnabled = true;
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.reset();
@@ -131,13 +171,22 @@ export class RunnerGame {
     this.flash = 0;
     this.pendingCrash = null;
     this.gate = null;
-    this.nextGateAt = GATE_EVERY;
+    this.walls = [];
+    this.scenery = [];
+    this.sinceProp = 0;
+    this.combo = 0;
+    this.bestCombo = 0;
+    this.multiplier = 1;
+    this.themeIndex = 0;
+    this.theme = THEMES[0];
+    this.nextGateAt = FIRST_GATE;
+    this.nextWallAt = FIRST_WALL;
     this.player = {
       lane: 0, x: 0, y: 0, vy: 0,
       ducking: false, duckTimer: 0,
       lastJumpAt: -99, lastDuckAt: -99, lastAirborneAt: -99,
     };
-    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0, poses: 0 };
+    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0, poses: 0, letters: 0 };
   }
 
   start() {
@@ -164,12 +213,48 @@ export class RunnerGame {
     this.shake = Math.max(0, this.shake - dt * 4);
     this.flash = Math.max(0, this.flash - dt * 3);
 
+    this._updateZone();
     this._applyInput(dt, input);
     this._movePlayer(dt);
     this._spawn(dt);
     this._advanceWorld(dt);
     this._collide(dt);
+    this._resolveWalls(input);
     this.render();
+  }
+
+  /** Move to the next place when the child has run far enough. */
+  _updateZone() {
+    const index = Math.floor(this.distance / ZONE_LENGTH) % THEMES.length;
+    if (index === this.themeIndex) return;
+    this.themeIndex = index;
+    this.theme = THEMES[index];
+    this.scenery = [];
+    this.flash = 0.8;
+    this._popup(this.theme.name, '#4cc9f0');
+    this.onEvent(`${this.theme.name}!`, { zone: this.theme.key });
+  }
+
+  /** Streaks: every fifth clean thing in a row raises the fruit multiplier. */
+  _addCombo() {
+    this.combo++;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    this.multiplier = Math.min(5, 1 + Math.floor(this.combo / 5));
+  }
+
+  _breakCombo() {
+    this.combo = 0;
+    this.multiplier = 1;
+  }
+
+  /** What the child has to get ready for, for the HUD. */
+  nextChallenge() {
+    const wall = this.walls.filter((w) => !w.resolved).sort((a, b) => a.z - b.z)[0];
+    if (wall) return { type: 'letter', letter: wall.letter, distance: Math.max(0, wall.z - PLAYER_Z) };
+    const gateIn = this.nextGateAt - this.distance;
+    const wallIn = this.nextWallAt - this.distance;
+    if (wallIn < gateIn) return { type: 'wall-soon', distance: Math.max(0, wallIn) };
+    return { type: 'pose-soon', distance: Math.max(0, gateIn) };
   }
 
   _applyInput(dt, input) {
@@ -230,8 +315,14 @@ export class RunnerGame {
   }
 
   _spawn(dt) {
+    this._spawnScenery(dt);
+
     if (this.gatesEnabled && this.distance >= this.nextGateAt && !this.gate) {
       this._openGate();
+      return;
+    }
+    if (this.wallsEnabled && this.distance >= this.nextWallAt) {
+      this._spawnWall();
       return;
     }
     this.sinceSpawn += this.speed * dt;
@@ -257,6 +348,40 @@ export class RunnerGame {
     else if (roll < 0.72) this._spawnTrains();
     else if (roll < 0.92) this._spawnCoins();
     else this._spawnShield();
+  }
+
+  /**
+   * A wall with a letter-shaped hole, which the child fits through by making
+   * that letter with their body. It spawns at the far end of the track, so
+   * there are several seconds to see it, hear it and get into the shape.
+   */
+  _spawnWall() {
+    const letter = WALL_LETTERS[Math.floor(Math.random() * WALL_LETTERS.length)];
+    this.walls.push({ letter, z: FAR, resolved: false, matched: false });
+    this.nextWallAt += WALL_EVERY + Math.random() * 60;
+    // Keep the lane clear so the child can concentrate on the shape.
+    this.obstacles = this.obstacles.filter((o) => o.z < FAR - 14);
+    this.sinceSpawn = -14;
+    this.onEvent(`Make a ${letter}!`, { wall: letter });
+  }
+
+  /** Trees, buildings, cacti: whatever this zone has beside the track. */
+  _spawnScenery(dt) {
+    this.sinceProp += this.speed * dt;
+    if (this.sinceProp < 9) return;
+    this.sinceProp = 0;
+    for (const side of [-1, 1]) {
+      // Sparse and set well back: scenery should say where you are, not crowd
+      // the lane the child is trying to read.
+      if (Math.random() < 0.5) continue;
+      const pool = this.theme.props;
+      this.scenery.push({
+        emoji: pool[Math.floor(Math.random() * pool.length)],
+        x: side * (3.2 + Math.random() * 1.8),
+        z: FAR + Math.random() * 8,
+        scale: 0.55 + Math.random() * 0.5,
+      });
+    }
   }
 
   _makeObstacle(type, lane) {
@@ -358,7 +483,11 @@ export class RunnerGame {
   _advanceWorld(dt) {
     const d = this.speed * dt;
     for (const o of this.obstacles) o.z -= d;
+    for (const w of this.walls) w.z -= d;
+    for (const p of this.scenery) p.z -= d;
     for (const p of this.pickups) { p.z -= d; p.spin += dt * 4; }
+    this.walls = this.walls.filter((w) => w.z > -4);
+    this.scenery = this.scenery.filter((p) => p.z > -4);
     this.obstacles = this.obstacles.filter((o) => o.z > -6);
     this.pickups = this.pickups.filter((p) => p.z > -6 && !p.taken);
 
@@ -441,6 +570,7 @@ export class RunnerGame {
       const clearsUnder = feet + headroom <= spec.h0 + 0.12;     // ducked under it
       if (clearsOver || clearsUnder || this._forgiven(spec)) {
         o.hit = true;                                 // counted as cleared
+        this._addCombo();
         continue;
       }
 
@@ -466,13 +596,54 @@ export class RunnerGame {
       const high = feet + headroom;
       if (q.y < low - 0.3 || q.y > high + 0.3) continue;
       q.taken = true;
-      this.coins++;
+      this.coins += this.multiplier;
+      this._addCombo();
       this.sfx.coin();
       this._burst(q, '#ffd166', 8);
     }
   }
 
+  /**
+   * Decide each wall as it reaches the child. A wall is never fatal: missing
+   * the shape costs the streak and the bonus, and the run carries on. Being
+   * knocked back to the menu for a letter you could not make in time is how a
+   * child decides the game hates them.
+   */
+  _resolveWalls(input) {
+    for (const wall of this.walls) {
+      if (wall.resolved) continue;
+      const rel = wall.z - PLAYER_Z;
+      // Judged over a window, not an instant, so an almost-there shape counts.
+      if (rel > 1.6) {
+        wall.matched = wall.matched || shapeSatisfies(input.shape, wall.letter);
+        continue;
+      }
+      if (rel > -0.6) {
+        if (shapeSatisfies(input.shape, wall.letter)) wall.matched = true;
+        continue;
+      }
+      wall.resolved = true;
+      if (wall.matched) {
+        this.stats.letters++;
+        this._addCombo();
+        this.coins += 3 * this.multiplier;
+        this.flash = 0.9;
+        this.sfx.shield();
+        this._popup('PERFECT!', '#7ddf9a');
+        this.onEvent(`${wall.letter}! Perfect!`, { move: 'letters', letter: wall.letter });
+        this._burst({ lane: 0, z: PLAYER_Z, y: 1.2 }, '#7ddf9a', 26);
+      } else {
+        this._breakCombo();
+        this.shake = 0.5;
+        this.sfx.block();
+        this._popup('Missed!', '#f0a868');
+        this.onEvent('Next time!', { wallMissed: wall.letter });
+      }
+    }
+  }
+
   _gameOver() {
+    this._breakCombo();
     this.running = false;
     this.over = true;
     this.shake = 1;
@@ -523,7 +694,9 @@ export class RunnerGame {
 
     // Painter's algorithm: everything sorted back to front.
     const items = [
+      ...this.scenery.map((p) => ({ z: p.z, draw: () => this._drawScenery(p) })),
       ...this.obstacles.map((o) => ({ z: o.z, draw: () => this._drawObstacle(o) })),
+      ...this.walls.map((w) => ({ z: w.z, draw: () => this._drawWall(w) })),
       ...this.pickups.filter((p) => !p.taken).map((p) => ({ z: p.z, draw: () => this._drawPickup(p) })),
       { z: PLAYER_Z, draw: () => this._drawPlayer() },
     ];
@@ -542,24 +715,131 @@ export class RunnerGame {
 
   _drawSky() {
     const ctx = this.ctx;
+    const theme = this.theme;
     const sky = ctx.createLinearGradient(0, 0, 0, this.horizon + 40);
-    sky.addColorStop(0, '#12263f');
-    sky.addColorStop(0.6, '#1b4965');
-    sky.addColorStop(1, '#5fa8d3');
+    sky.addColorStop(0, theme.sky[0]);
+    sky.addColorStop(0.6, theme.sky[1]);
+    sky.addColorStop(1, theme.sky[2]);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, this.w, this.horizon + 40);
 
-    // Parallax skyline: shifts opposite the player's lane so a side step reads.
-    const shift = -this.player.x * this.w * 0.03 - (this.distance * 1.6) % (this.w + 240);
-    ctx.fillStyle = 'rgba(8,18,32,0.75)';
-    for (let i = 0; i < 26; i++) {
-      const bw = 40 + ((i * 37) % 60);
-      const bh = 26 + ((i * 53) % 90);
-      const bx = ((i * 96 + shift) % (this.w + 240)) - 120;
-      ctx.fillRect(bx, this.horizon - bh, bw, bh);
-    }
-    ctx.fillStyle = '#0d1b2a';
+    this._drawSkyline(theme);
+
+    ctx.fillStyle = theme.far;
     ctx.fillRect(0, this.horizon, this.w, this.h - this.horizon);
+  }
+
+  /**
+   * The far parallax layer. It shifts opposite the player's lane, so a side
+   * step reads as movement rather than the runner sliding on a fixed picture,
+   * and its silhouette is what makes each zone recognisable at a glance.
+   */
+  _drawSkyline(theme) {
+    const ctx = this.ctx;
+    const span = this.w + 260;
+    const shift = -this.player.x * this.w * 0.03 - (this.distance * 1.6) % span;
+    const at = (i) => ((i * 96 + shift) % span) - 130;
+    ctx.save();
+
+    if (theme.skyline === 'stars') {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      for (let i = 0; i < 70; i++) {
+        const x = ((i * 137 + shift * 0.3) % span) - 130;
+        const y = ((i * 53) % Math.max(1, this.horizon - 10));
+        const r = 1 + (i % 3) * 0.6;
+        ctx.globalAlpha = 0.4 + ((i * 17) % 60) / 100;
+        ctx.fillRect(x, y, r, r);
+      }
+      ctx.globalAlpha = 1;
+    } else if (theme.skyline === 'trees' || theme.skyline === 'mountains') {
+      const snow = theme.skyline === 'mountains';
+      ctx.fillStyle = snow ? 'rgba(20,34,52,0.9)' : 'rgba(4,26,14,0.85)';
+      for (let i = 0; i < 26; i++) {
+        const w = 70 + ((i * 37) % 90);
+        const h = (snow ? 60 : 40) + ((i * 53) % (snow ? 130 : 80));
+        const x = at(i);
+        ctx.beginPath();
+        ctx.moveTo(x, this.horizon);
+        ctx.lineTo(x + w / 2, this.horizon - h);
+        ctx.lineTo(x + w, this.horizon);
+        ctx.closePath();
+        ctx.fill();
+        if (snow) {
+          ctx.fillStyle = 'rgba(230,244,255,0.9)';
+          ctx.beginPath();
+          ctx.moveTo(x + w / 2 - w * 0.13, this.horizon - h * 0.72);
+          ctx.lineTo(x + w / 2, this.horizon - h);
+          ctx.lineTo(x + w / 2 + w * 0.13, this.horizon - h * 0.72);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = 'rgba(20,34,52,0.9)';
+        }
+      }
+    } else if (theme.skyline === 'dunes') {
+      ctx.fillStyle = 'rgba(60,38,16,0.8)';
+      for (let i = 0; i < 18; i++) {
+        const w = 160 + ((i * 47) % 140);
+        const h = 30 + ((i * 31) % 60);
+        ctx.beginPath();
+        ctx.ellipse(at(i) + w / 2, this.horizon, w / 2, h, 0, Math.PI, 0);
+        ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = 'rgba(8,18,32,0.75)';
+      for (let i = 0; i < 26; i++) {
+        const bw = 40 + ((i * 37) % 60);
+        const bh = 26 + ((i * 53) % 90);
+        ctx.fillRect(at(i), this.horizon - bh, bw, bh);
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Whatever grows or stands beside the track in this zone. */
+  _drawScenery(prop) {
+    if (prop.z > FAR + 8 || prop.z < PLAYER_Z - 2) return;
+    const pos = this.project(prop.x, 0, prop.z);
+    const size = Math.min(prop.scale * 0.9 * this.unit * pos.s, this.h * 0.2);
+    this._emoji(prop.emoji, pos.x, pos.y - size * 0.45, size);
+  }
+
+  /**
+   * A wall with a letter-shaped hole. The letter is drawn in the dark of the
+   * far background with a bright rim, which reads as a hole cut through the
+   * wall without needing a second canvas to composite one.
+   */
+  _drawWall(wall) {
+    const ctx = this.ctx;
+    const exit = PLAYER_Z - 1.2;
+    if (wall.z > FAR + 6 || wall.z < exit) return;
+    const alpha = Math.min(1, (wall.z - exit) / 1.2);
+    const z = Math.max(wall.z, -0.8);
+    const hit = wall.matched;
+
+    const tl = this.project(-1.75, WALL.h1, z);
+    const tr = this.project(1.75, WALL.h1, z);
+    const br = this.project(1.75, WALL.h0, z);
+    const bl = this.project(-1.75, WALL.h0, z);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = hit ? '#2f9e5f' : '#8e5cf0';
+    quad(ctx, tl, tr, br, bl);
+    ctx.strokeStyle = hit ? '#7ddf9a' : '#c9a7ff';
+    ctx.lineWidth = Math.max(2, 6 * tl.s);
+    ctx.stroke();
+
+    const centre = this.project(0, (WALL.h0 + WALL.h1) / 2, z);
+    const size = Math.min(1.5 * this.unit * centre.s, this.h * 0.4);
+    ctx.font = `bold ${Math.round(size)}px system-ui, "Segoe UI", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = this.theme.far;
+    ctx.fillText(wall.letter, centre.x, centre.y);
+    ctx.lineWidth = Math.max(2, size * 0.05);
+    ctx.strokeStyle = hit ? '#7ddf9a' : '#ffd166';
+    ctx.strokeText(wall.letter, centre.x, centre.y);
+    ctx.restore();
   }
 
   _drawTrack() {
@@ -574,12 +854,12 @@ export class RunnerGame {
     const groundR = this.project(5.5, 0, -2);
     const groundFL = this.project(-5.5, 0, ROAD_FAR);
     const groundFR = this.project(5.5, 0, ROAD_FAR);
-    ctx.fillStyle = '#16222f';
+    ctx.fillStyle = this.theme.ground;
     quad(ctx, groundL, groundFL, groundFR, groundR);
 
     const road = ctx.createLinearGradient(0, this.horizon, 0, this.h);
-    road.addColorStop(0, '#20303f');
-    road.addColorStop(1, '#2f4457');
+    road.addColorStop(0, this.theme.road[0]);
+    road.addColorStop(1, this.theme.road[1]);
     ctx.fillStyle = road;
     quad(ctx, nearL, farL, farR, nearR);
 
@@ -597,8 +877,8 @@ export class RunnerGame {
 
     // Distance haze: softens the point where the road meets the skyline.
     const haze = ctx.createLinearGradient(0, this.horizon - 10, 0, this.horizon + this.h * 0.14);
-    haze.addColorStop(0, 'rgba(95,168,211,0.55)');
-    haze.addColorStop(1, 'rgba(95,168,211,0)');
+    haze.addColorStop(0, `${this.theme.sky[2]}99`);
+    haze.addColorStop(1, `${this.theme.sky[2]}00`);
     ctx.fillStyle = haze;
     ctx.fillRect(0, this.horizon - 10, this.w, this.h * 0.14 + 10);
 
