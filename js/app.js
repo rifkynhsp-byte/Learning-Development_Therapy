@@ -9,6 +9,7 @@ import { Tutorial } from './tutorial.js';
 import { Coach } from './coach.js';
 import { ShapeHold, SHAPES, detectShape, LETTERS } from './shapes.js';
 import { SessionStats, CHILD, saveSession, loadHistory, aggregate, clearHistory } from './stats.js';
+import { ADVENTURES, adventureByKey, MOVE_WORDS, say as pickText } from './lessons.js';
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'sensory-runner-settings-v1';
@@ -29,7 +30,28 @@ const ui = {
   combo: $('hud-combo'),
   challenge: $('challenge'),
   preview: $('preview'),
+  hearts: $('hud-hearts'),
+  lesson: $('lesson'),
+  quiz: $('quiz'),
+  fact: $('fact'),
 };
+
+/**
+ * When the runner is opened from inside Rumah Belajar, the family app's
+ * common.js is on the page as window.SUPER: learning in the runner then earns
+ * the same XP, food and zoo animals as every other game, and there is a way
+ * home. Opened on its own, SUPER is absent and all of this quietly does nothing.
+ */
+const superApp = () => (window.SUPER && window.SUPER.score ? window.SUPER : null);
+function awardXp(o) {
+  const S = superApp();
+  if (!S) return;
+  try { S.score.award('runner', o); } catch { /* never let scoring stop a run */ }
+}
+if (window.SUPER) {
+  $('super-home').classList.remove('hidden');
+  $('super-home-2').classList.remove('hidden');
+}
 
 const sfx = new Sfx();
 const coach = new Coach();
@@ -45,9 +67,9 @@ let moveLabelUntil = 0;
 let lastRunDistance = 0;
 let currentShape = null;
 let shapeCheckedAt = 0;
+let factTimer = 0;
 
 const settings = loadSettings();
-applySettings();
 
 /** Keyboard fallback so the game is playable (and testable) without a camera. */
 const keys = { lane: 0, ducking: false, jump: false, reach: false, confirm: false, shape: null, shapeUntil: 0 };
@@ -77,7 +99,8 @@ window.addEventListener('keyup', (e) => {
 // ------------------------------------------------------------------ settings
 
 function loadSettings() {
-  const defaults = { speed: 'medium', practice: true, voice: true, gates: true, walls: true };
+  const defaults = { speed: 'medium', practice: true, voice: true, gates: true, walls: true,
+                     adventure: 'water', lang: 'both' };
   try {
     return { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
   } catch {
@@ -93,16 +116,59 @@ function applySettings() {
   game.setSpeedPreset(settings.speed);
   game.gatesEnabled = settings.gates;
   game.wallsEnabled = settings.walls;
+  game.setAdventure(adventureByKey(settings.adventure));
+  game.lang = settings.lang;
   coach.muted = !settings.voice;
   stats.speedLabel = settings.speed;
   for (const btn of $('speed-picker').querySelectorAll('button')) {
     btn.classList.toggle('on', btn.dataset.speed === settings.speed);
   }
+  for (const btn of $('lang-picker').querySelectorAll('button')) {
+    btn.classList.toggle('on', btn.dataset.lang === settings.lang);
+  }
+  for (const btn of $('adventure-picker').querySelectorAll('button')) {
+    btn.classList.toggle('on', btn.dataset.adventure === settings.adventure);
+  }
+  const adv = adventureByKey(settings.adventure);
+  $('adventure-note').textContent = adv
+    ? `${adv.icon} ${t(adv.intro)}`
+    : 'Free run: animals, fruit, yoga gates and letter walls, no lessons.';
   $('opt-practice').checked = settings.practice;
   $('opt-voice').checked = settings.voice;
   $('opt-gates').checked = settings.gates;
   $('opt-walls').checked = settings.walls;
 }
+
+/** The adventure picker: a free run, then one button per adventure. */
+function buildAdventurePicker() {
+  const box = $('adventure-picker');
+  const options = [{ key: 'free', icon: '\u{1F3C3}', id: 'Lari bebas', en: 'Free run' }, ...ADVENTURES];
+  box.innerHTML = options.map((a) =>
+    `<button type="button" data-adventure="${a.key}"><span class="big">${a.icon}</span>` +
+    `${escapeHtml(a.id)}<br><small>${escapeHtml(a.en)}</small></button>`).join('');
+}
+buildAdventurePicker();
+applySettings();
+
+$('adventure-picker').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-adventure]');
+  if (!btn) return;
+  settings.adventure = btn.dataset.adventure;
+  saveSettings();
+  applySettings();
+  sfx.lane();
+  const adv = adventureByKey(settings.adventure);
+  if (adv) coach.sayPair({ id: adv.id, en: adv.en }, settings.lang);
+});
+
+$('lang-picker').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-lang]');
+  if (!btn) return;
+  settings.lang = btn.dataset.lang;
+  saveSettings();
+  applySettings();
+  sfx.lane();
+});
 
 $('speed-picker').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-speed]');
@@ -162,6 +228,7 @@ $('btn-clear').addEventListener('click', () => {
 
 function backToMenu() {
   coach.stop();
+  hideLessonHud();
   persistSession();
   show(ui.start);
   ui.hud.classList.add('hidden');
@@ -256,9 +323,157 @@ function startRun() {
   game.setSpeedPreset(settings.speed);
   game.gatesEnabled = settings.gates;
   game.wallsEnabled = settings.walls;
+  game.setAdventure(adventureByKey(settings.adventure));
+  game.lang = settings.lang;
   game.start();
   setMoveLabel('Go!');
-  coach.say('Ready, set, go!');
+  hideLessonHud();
+  const adv = game.adventure;
+  if (adv) {
+    ui.lesson.classList.remove('hidden');
+    ui.hearts.classList.remove('hidden');
+    renderLessonHud(null);
+    coach.sayPair(adv.intro, settings.lang);
+  } else {
+    coach.say('Ready, set, go!');
+  }
+}
+
+// ---------------------------------------------------------- learning HUD
+
+/** Text in the chosen language, from a {id, en} pair. */
+function t(pair) { return pickText(pair, settings.lang); }
+
+function hideLessonHud() {
+  for (const el of [ui.lesson, ui.quiz, ui.fact, ui.hearts]) el.classList.add('hidden');
+  clearTimeout(factTimer);
+}
+
+/**
+ * The cycle strip: every step in order, the ones learned this run ticked, the
+ * current one highlighted. For a cycle an arrow closes the loop back to the
+ * start, because "it goes round again" is the whole point.
+ */
+function renderLessonHud(current) {
+  const adv = game.adventure;
+  if (!adv) return;
+  const L = game.lesson;
+  const index = current ? current.index : L.index;
+  $('lesson-icon').textContent = adv.icon;
+  $('lesson-title').textContent = t({ id: adv.id, en: adv.en });
+  const learned = new Set(L.learnedKeys);
+  $('lesson-steps').innerHTML = adv.steps.map((step, i) => {
+    const cls = i === index ? 'now' : learned.has(i) ? 'done' : '';
+    return `<span class="${cls}" title="${escapeHtml(t(step))}">${step.emoji}</span>`;
+  }).join('') + (adv.kind === 'cycle' ? '<span class="arrow">\u21BA</span>' : '');
+  const step = adv.steps[index];
+  const label = adv.kind === 'cycle'
+    ? `${settings.lang === 'en' ? 'Step' : 'Langkah'} ${index + 1}/${adv.steps.length}: ${t(step)}`
+    : t(step);
+  $('lesson-emoji').textContent = step.emoji;
+  $('lesson-name').textContent = label;
+  const move = MOVE_WORDS[step.move];
+  $('lesson-do').textContent = current
+    ? `${move.emoji} ${t(step.do)}`
+    : `${move.emoji} ${settings.lang === 'en' ? 'Coming up' : 'Sebentar lagi'}\u2026`;
+}
+
+function showFact(emoji, title, text, wrong = false) {
+  $('fact-emoji').textContent = emoji;
+  $('fact-title').textContent = title;
+  $('fact-text').textContent = text;
+  ui.fact.classList.toggle('wrong', wrong);
+  ui.fact.classList.remove('hidden');
+  // Restart the entry animation for back-to-back facts.
+  ui.fact.style.animation = 'none';
+  void ui.fact.offsetWidth;
+  ui.fact.style.animation = '';
+  clearTimeout(factTimer);
+  factTimer = setTimeout(() => ui.fact.classList.add('hidden'), 7000);
+}
+
+function renderHearts() {
+  ui.hearts.textContent = '\u2764\uFE0F'.repeat(Math.max(0, game.hearts)) +
+    '\u{1F90D}'.repeat(Math.max(0, 3 - game.hearts));
+}
+
+/** Everything the adventure says and shows, driven by the game's events. */
+function onLessonEvent(payload) {
+  const adv = game.adventure;
+  const lang = settings.lang;
+
+  if (payload.lesson) {
+    const { step, index, total } = payload.lesson;
+    renderLessonHud(payload.lesson);
+    ui.quiz.classList.add('hidden');
+    const lead = adv.kind === 'cycle'
+      ? { id: `Langkah ${index + 1}: ${step.id}.`, en: `Step ${index + 1} of ${total}: ${step.en}.` }
+      : { id: `${step.id}!`, en: `The ${step.en.toLowerCase()}!` };
+    coach.sayPair({ id: `${lead.id} ${step.do.id}`, en: `${lead.en} ${step.do.en}` }, lang);
+    return true;
+  }
+
+  if (payload.learned) {
+    const { step, loopDone } = payload.learned;
+    renderLessonHud(null);
+    showFact(step.emoji, t(step), t(step.fact));
+    coach.sayPair(step.fact, lang);
+    awardXp({ level: 2, wrongs: 0 });
+    if (loopDone) {
+      const done = adv.kind === 'cycle'
+        ? { id: 'Kembali ke awal! Siklusnya berputar terus.', en: 'Back to the start! The cycle goes round and round.' }
+        : { id: 'Hebat, semua hewan sudah kita temui!', en: 'Great, we met every animal!' };
+      coach.sayPair(done, lang, { interrupt: false });
+      coach.sayPair(adv.ethic, lang, { interrupt: false });
+      coach.sayPair({ id: 'Sekarang ada pertanyaan. Pilih jalur yang benar!',
+                      en: 'Now for some questions. Step into the right lane!' }, lang, { interrupt: false });
+    }
+    return true;
+  }
+
+  if (payload.lessonMissed) {
+    const { step } = payload.lessonMissed;
+    const move = MOVE_WORDS[step.move];
+    coach.sayPair({ id: `Hampir! Ayo coba lagi. ${move.id}`, en: `Almost! Let us try again. ${move.en}` }, lang);
+    return true;
+  }
+
+  if (payload.quiz) {
+    const q = payload.quiz;
+    $('quiz-prompt').textContent = t(q.prompt);
+    $('quiz-hint').textContent = lang === 'en'
+      ? 'Step into the lane with the right picture!'
+      : 'Geser ke jalur dengan gambar yang benar!';
+    ui.quiz.classList.remove('hidden');
+    coach.sayPair(q.prompt, lang);
+    const names = q.options.map((o) => o.id).join(', ');
+    const namesEn = q.options.map((o) => o.en).join(', ');
+    coach.sayPair({ id: names, en: namesEn }, lang, { interrupt: false });
+    return true;
+  }
+
+  if (payload.answer) {
+    const { correct, right } = payload.answer;
+    ui.quiz.classList.add('hidden');
+    if (correct) {
+      showFact(right.emoji, lang === 'en' ? `Right! ${right.en}` : `Benar! ${right.id}`, t(payload.answer.prompt));
+      coach.sayPair({ id: `Benar! ${right.id}.`, en: `That's right! ${right.en}.` }, lang);
+      awardXp({ level: 3, wrongs: 0 });
+    } else {
+      showFact(right.emoji, lang === 'en' ? `The answer is ${right.en}` : `Jawabannya ${right.id}`,
+        t(payload.answer.prompt), true);
+      coach.sayPair({ id: `Belum tepat. Jawabannya ${right.id}.`, en: `Not quite. It is the ${right.en.toLowerCase()}.` }, lang);
+      awardXp({ level: 3, wrongs: 2 });
+    }
+    return true;
+  }
+
+  if ('hearts' in payload) {
+    renderHearts();
+    coach.say(game.hearts > 1 ? 'Oops! Keep going!' : 'Last heart. You can do it!', { interrupt: false });
+    return false;
+  }
+  return false;
 }
 
 // --------------------------------------------------------------- yoga gates
@@ -319,6 +534,10 @@ function finishGate(passed) {
 
 function onGameEvent(label, payload = {}) {
   if (label === '__gameover__') { endRun(); return; }
+  if (game.adventure && onLessonEvent(payload)) {
+    setMoveLabel(payload.lesson ? t(payload.lesson.step) : label);
+    return;
+  }
   if (payload.gate) { openGate(payload.gate); return; }
   if (payload.wall) { coach.say(SHAPES[payload.wall].cue); }
   if (payload.zone) { coach.say(`Welcome to the ${label.replace('!', '')}!`, { interrupt: false }); }
@@ -338,6 +557,10 @@ function renderChallengeHud(input) {
   ui.combo.classList.toggle('hidden', game.multiplier < 2);
   ui.combo.textContent = `\u{1F525} x${game.multiplier}`;
 
+  if (next.type === 'quiz') {
+    chip.classList.add('hidden');
+    return;
+  }
   if (next.type !== 'letter') {
     chip.classList.add('hidden');
     return;
@@ -359,6 +582,7 @@ function setMoveLabel(text) {
 }
 
 function endRun() {
+  hideLessonHud();
   ui.challenge.classList.add('hidden');
   ui.combo.classList.add('hidden');
   lastRunDistance = game.distance;
@@ -379,6 +603,25 @@ function endRun() {
   $('stat-kcal').textContent = s.kcal.toFixed(1);
   $('stat-met').textContent = s.met.toFixed(1);
   $('over-title').textContent = pickPraise(lastRunDistance);
+  const adv = game.adventure;
+  ui.over.classList.toggle('learning', !!adv);
+  $('stat-learned').textContent = String(game.stats.learned);
+  $('stat-quiz').textContent = `${game.stats.quizRight}/${game.stats.quizTotal}`;
+  const list = $('learned-list');
+  const ethic = $('over-ethic');
+  if (adv && game.lesson.learnedKeys.length) {
+    const seen = [...new Set(game.lesson.learnedKeys)];
+    list.innerHTML = seen.map((i) => `<span>${adv.steps[i].emoji} ${escapeHtml(t(adv.steps[i]))}</span>`).join('');
+    list.classList.remove('hidden');
+  } else {
+    list.classList.add('hidden');
+  }
+  if (adv) {
+    ethic.textContent = `${adv.icon} ${t(adv.ethic)}`;
+    ethic.classList.remove('hidden');
+  } else {
+    ethic.classList.add('hidden');
+  }
   show(ui.over);
   coach.say(pickPraise(lastRunDistance));
   setTimeout(() => sfx.fanfare(), 500);
@@ -473,6 +716,17 @@ function frame(now) {
     ui.coins.textContent = `\u{1F34E} ${game.coins}`;
     if (now > moveLabelUntil) ui.move.textContent = game.shield > 0 ? '⭐ Shielded' : 'Run!';
     renderChallengeHud(input);
+    if (game.adventure) {
+      renderHearts();
+      const quiz = game.lesson.quiz;
+      if (quiz) {
+        const lane = game.player.lane;
+        const here = quiz.options.find((o) => o.lane === lane);
+        $('quiz-hint').textContent = here
+          ? `${here.emoji} ${settings.lang === 'en' ? here.en : here.id}?`
+          : '';
+      }
+    }
   }
 }
 

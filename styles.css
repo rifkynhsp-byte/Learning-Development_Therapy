@@ -430,3 +430,151 @@ button:active { transform: scale(0.97); }
 }
 
 #hud-combo { color: #ffb347; }
+
+/* ---------- Learning adventures ---------- */
+
+.howto { margin: 0 0 16px; text-align: left; }
+.howto summary {
+  cursor: pointer;
+  font-weight: bold;
+  opacity: 0.8;
+  padding: 6px 2px 10px;
+}
+.howto .legend { margin-bottom: 6px; }
+
+.adventures {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.adventures button {
+  margin: 0;
+  padding: 10px 6px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  font-size: 13px;
+  line-height: 1.2;
+}
+.adventures button .big { display: block; font-size: 28px; margin-bottom: 4px; }
+.adventures button.on {
+  background: rgba(125, 223, 154, 0.18);
+  border-color: #7ddf9a;
+}
+.adventure-note { font-size: 14px; opacity: 0.8; margin: 8px 0 0; min-height: 1.3em; }
+
+.super-home, .ghost-link {
+  display: inline-block;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: bold;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  margin-bottom: 12px;
+}
+.ghost-link { margin: 4px auto 0; }
+
+#hud-hearts { letter-spacing: 2px; }
+
+#lesson {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 54px);
+  left: max(12px, env(safe-area-inset-left));
+  width: min(330px, 42vw);
+  background: rgba(13, 27, 42, 0.72);
+  border: 2px solid rgba(125, 223, 154, 0.45);
+  border-radius: 18px;
+  padding: 10px 12px;
+  pointer-events: none;
+}
+#lesson-head { font-weight: bold; font-size: 14px; opacity: 0.85; display: flex; gap: 6px; align-items: center; }
+#lesson-steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+#lesson-steps span {
+  font-size: clamp(16px, 2.6vw, 24px);
+  width: 1.7em; height: 1.7em;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid transparent;
+  opacity: 0.45;
+  position: relative;
+}
+#lesson-steps span.done { opacity: 1; border-color: #7ddf9a; }
+#lesson-steps span.now { opacity: 1; border-color: var(--accent); background: rgba(255, 209, 102, 0.22); }
+#lesson-steps span.arrow { background: none; opacity: 0.6; width: 1em; border: none; }
+#lesson-now { display: flex; gap: 10px; align-items: center; }
+#lesson-emoji { font-size: clamp(30px, 5vw, 44px); }
+#lesson-name { font-size: clamp(15px, 2.4vw, 20px); color: var(--accent); }
+#lesson-do { font-size: clamp(13px, 2vw, 16px); opacity: 0.92; }
+
+#quiz {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 60vw);
+  text-align: center;
+  background: rgba(255, 209, 102, 0.92);
+  color: #23180a;
+  border-radius: 18px;
+  padding: 10px 16px;
+  pointer-events: none;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+#quiz-prompt { font-weight: bold; font-size: clamp(17px, 3vw, 26px); }
+#quiz-hint { font-size: clamp(12px, 2vw, 15px); opacity: 0.8; margin-top: 2px; }
+
+#fact {
+  position: absolute;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(620px, 64vw);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(13, 27, 42, 0.86);
+  border: 2px solid #7ddf9a;
+  border-radius: 18px;
+  padding: 10px 16px;
+  pointer-events: none;
+  animation: factin 0.35s ease-out;
+}
+#fact.wrong { border-color: #f0a868; }
+#fact-emoji { font-size: clamp(34px, 6vw, 52px); }
+#fact-title { color: #7ddf9a; font-size: clamp(15px, 2.6vw, 21px); }
+#fact.wrong #fact-title { color: #f0a868; }
+#fact-text { font-size: clamp(13px, 2.2vw, 17px); line-height: 1.35; }
+@keyframes factin { from { transform: translate(-50%, 20px); opacity: 0; } }
+
+.learn-only { display: none; }
+.learning .learn-only { display: block; }
+.learned-list { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: -6px 0 12px; }
+.learned-list span {
+  background: rgba(125, 223, 154, 0.14);
+  border: 1px solid rgba(125, 223, 154, 0.5);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.ethic {
+  background: rgba(76, 201, 240, 0.12);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  #lesson { width: min(260px, 60vw); }
+  #lesson-steps span { font-size: 15px; }
+  #quiz { width: 86vw; top: auto; bottom: 110px; }
+  #fact { width: 92vw; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #fact { animation: none; }
+}

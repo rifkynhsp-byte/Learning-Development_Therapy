@@ -6,7 +6,7 @@
  * a therapy session never re-downloads them and works with no connection at
  * all after the first run.
  */
-const VERSION = 'sensory-runner-v2';
+const VERSION = 'sensory-runner-v3';
 const SHELL = `${VERSION}-shell`;
 const VENDOR = `${VERSION}-vendor`;
 
@@ -24,6 +24,7 @@ const SHELL_FILES = [
   './js/stats.js',
   './js/coach.js',
   './js/tutorial.js',
+  './js/lessons.js',
 ];
 
 const VENDOR_HOSTS = ['cdn.jsdelivr.net', 'unpkg.com', 'storage.googleapis.com'];
