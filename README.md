@@ -20,6 +20,68 @@ Every movement the game asks for is an occupational-therapy movement:
 A child who cannot yet jump with both feet can drive the same mechanic by
 **marching** — lifting one knee high counts as a jump.
 
+## Learning adventures
+
+The runner also teaches. Pick an adventure on the menu and every movement
+acts out an idea, so the child is not only jumping and ducking but walking
+through the water cycle, or moving like a crab, a dolphin and a starfish.
+
+| Adventure | What it teaches | Steps |
+| --- | --- | --- |
+| 💧 **Siklus Air** / The Water Cycle | sea, evaporation, condensation, wind, rain, flowing back | 6, a cycle |
+| 🦋 **Siklus Kupu-kupu** / Butterfly | egg, caterpillar, chrysalis, butterfly | 4, a cycle |
+| 🐠 **Kehidupan Laut** / Sea Life | crab, dolphin, sea turtle, starfish, jellyfish, pufferfish, octopus | 7 animals |
+| 🐯 **Satwa Liar** / Wildlife | kangaroo, Sumatran tiger, Javan hawk-eagle, giraffe, orangutan, Sumatran elephant, Komodo | 7 animals |
+| 🌾 **Rantai Makanan** / Food Chain | rice, grasshopper, frog, snake, eagle, decomposers | 6, a cycle |
+
+Every step is paired with the movement that acts it out:
+
+| Step | The child | Why that movement |
+| --- | --- | --- |
+| ☀️ Evaporation | stretches both arms up | the water rises as vapour |
+| ☁️ Condensation | makes an **O** | the vapour gathers into a cloud |
+| 🌬️ Wind | steps sideways | the wind pushes the cloud along |
+| 🌧️ Rain | squats | the rain falls down |
+| 🦀 Crab | steps sideways | crabs walk sideways |
+| 🐬 Dolphin | jumps | dolphins leap out to breathe |
+| ⭐ Starfish | makes an **X** | five points: two arms, two legs, a head |
+| 🦅 Eagle | makes a **T** | wings spread wide |
+| 🦧 Orangutan | makes a **Y** | arms up, swinging through the trees |
+| 🦒 Giraffe | stretches up | the tallest animal |
+
+How a run goes:
+
+1. **One step at a time, in order.** A lesson stop comes down the track about
+   every 55 metres: the stage's picture on the obstacles, a card in the corner
+   ("Langkah 2/6: Penguapan"), and the instruction spoken out loud. Do the
+   movement and the fact is shown and read: *"The sun warms the water. It turns
+   into vapour and rises into the sky."*
+2. **The cycle closes.** After the last step it goes back to the first, and the
+   strip in the corner shows it with a ↺. The ethic follows: save water, never
+   throw plastic in the sea, never buy wild animals.
+3. **Then questions.** From the second time round, every stop starts with a
+   question on three signs, one per lane: *"After evaporation, what comes
+   next?"* or *"Who walks sideways?"* The child answers by stepping into the
+   lane with the right picture. The wrong lane is never punished: it says the
+   right answer, shows it, and the stop that follows acts it out.
+4. **A missed stretch or letter comes round again**, rather than being skipped,
+   so the cycle is always learned in order.
+5. **Three hearts.** In an adventure a crash costs a heart instead of the whole
+   run, so a child does not get sent back to the menu halfway up to the clouds.
+
+Everything is in **Bahasa Indonesia, English, or both** (the Language picker).
+In "both" each line is said in Indonesian first, then English. The device's
+own Indonesian voice is used when there is one, found under any of the codes
+devices report it as (`id-ID`, `in-ID`, `id`, `ind`).
+
+The free run is unchanged, and is still on the menu as *Lari bebas*.
+
+To add an adventure, copy one in `js/lessons.js`. Each step needs a picture,
+a name, a movement, what to do, a fact, and (for animals) a question, all in
+both languages. The tests check that nothing is missing, that each question
+has exactly one right answer, and that a cycle never asks for the same
+movement twice in a row.
+
 ### Letter walls
 
 A wall comes down the track with a letter-shaped hole in it, and the only way
@@ -139,6 +201,7 @@ child to tap out of.
 js/pose.js      camera + MediaPipe landmarks -> jump, duck, lane, stretch
 js/shapes.js    held body shapes -> Cow, Cat, Cobra and the letters T Y O X L A
 js/tutorial.js  the practice room: framing, calibration, one drill at a time
+js/lessons.js   the learning adventures: steps, movements, facts, questions
 js/game.js      three-lane runner, pseudo-3D projection on a 2D canvas
 js/coach.js     spoken instructions and praise, via the browser's own voice
 js/stats.js     session counts, the exercise estimate, on-device history
@@ -205,6 +268,8 @@ Three places hold every number worth adjusting:
 * `TOLERANCE` and the constants at the top of `js/game.js` — timing forgiveness,
   speed presets, jump arc, obstacle sizes, and the spawn mix in `_spawn`.
 * `CHILD` in `js/stats.js` — age and weight for the exercise estimate.
+* `FIRST_LESSON`, `LESSON_EVERY` and `HEARTS` at the top of `js/game.js` — how
+  often the lesson stops come and how many bumps an adventure forgives.
 
 After changing any of them, run the tests: they check that the course stays
 beatable, that each obstacle type still forces the movement it is meant to, that
@@ -214,6 +279,14 @@ never dead-end.
 ```
 npm test
 ```
+
+## Inside Rumah Belajar
+
+This runner is also part of [Rumah Belajar](https://github.com/rifkynhsp-byte/Learn-with-Baim),
+in its `runner/` folder. There it loads the family app's `common.js`, and
+every lesson learned and question answered earns the same XP, pet food and
+zoo animals as the other games. On its own, without `common.js`, it plays
+exactly the same and simply does not score.
 
 ## Notes
 

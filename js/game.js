@@ -9,12 +9,19 @@
  *   star            -> stretch   (overhead extension, crossing the midline)
  *   yoga gate       -> held pose (reflex integration: Cat, Cow, Cobra, Star)
  *
+ * With a learning adventure chosen (see lessons.js) the same movements carry a
+ * lesson: every so often a lesson stop arrives -- a stage of the water cycle,
+ * or an animal -- and the child acts it out with the movement that stage asks
+ * for. Once the whole cycle has been run, each stop is preceded by a question
+ * answered by stepping into the lane with the right picture.
+ *
  * Timing is forgiving by design. See TOLERANCE below: a child who jumps early
  * or late still gets through, because the therapeutic value is in the jump,
  * not in the frame it landed on.
  */
 
 import { shapeSatisfies } from './shapes.js';
+import { makeQuestion } from './lessons.js';
 
 const LANES = [-1, 0, 1];
 const DEPTH = 26;          // perspective falloff constant (higher = flatter)
@@ -87,6 +94,13 @@ const FIRST_WALL = 70;     // metres before the first letter wall
 const WALL_EVERY = 120;
 const WALL_LETTERS = ['T', 'Y', 'O', 'X', 'L', 'A'];
 
+// Learning adventures.
+const FIRST_LESSON = 30;   // metres before the first lesson stop
+const LESSON_EVERY = 55;   // between lesson stops
+const RETRY_AFTER = 26;    // a missed stop comes round again this soon
+const AFTER_QUIZ = 14;     // the answer's own stop follows the question closely
+export const HEARTS = 3;   // bumps allowed in an adventure before the run ends
+
 /**
  * Scenery. The run passes through five places rather than one endless street,
  * because a background that never changes stops being noticed -- and noticing
@@ -115,7 +129,49 @@ const THEMES = [
     sky: ['#03020c', '#0f0a24', '#2a1d52'], ground: '#0a0818',
     road: ['#171432', '#241f4a'], far: '#03020a',
     props: ['\u{1F680}', '\u{1F6F8}', '\u{1FA90}', '\u2B50', '\u{1F47D}'] },
+
+  // Places the learning adventures run through. Not in the free-run rotation.
+  { key: 'ocean-shore', name: 'Seaside', skyline: 'waves', learnOnly: true,
+    sky: ['#0b3a5c', '#2a7ab0', '#9fd8f5'], ground: '#d9b77a',
+    road: ['#c9a568', '#e2c68c'], far: '#1c6e9c',
+    props: ['\u{1F334}', '\u{1F41A}', '\u{1F980}', '\u26F1\uFE0F'] },
+  { key: 'sky', name: 'Up in the sky', skyline: 'clouds', learnOnly: true,
+    sky: ['#1d4e89', '#4f8fd1', '#cfe8ff'], ground: '#7aa6d6',
+    road: ['#9cc1e8', '#c7def5'], far: '#5d8fc6',
+    props: ['\u2601\uFE0F', '\u{1F326}\uFE0F', '\u{1F54A}\uFE0F', '\u{1F308}'] },
+  { key: 'mountain', name: 'Mountains', skyline: 'mountains', learnOnly: true,
+    sky: ['#233a52', '#56718f', '#b9cde0'], ground: '#34503a',
+    road: ['#4d6b50', '#65876a'], far: '#1f3326',
+    props: ['\u{1F3D4}\uFE0F', '\u{1F332}', '\u{1F327}\uFE0F', '\u{1FAA8}'] },
+  { key: 'river', name: 'The river', skyline: 'trees', learnOnly: true,
+    sky: ['#0f3b3a', '#2f7f74', '#a8e0c8'], ground: '#2b5a3a',
+    road: ['#2f6f9a', '#4b93c4'], far: '#123a28',
+    props: ['\u{1F33F}', '\u{1F333}', '\u{1F986}', '\u{1F41F}', '\u{1FAB7}'] },
+  { key: 'garden', name: 'Flower garden', skyline: 'trees', learnOnly: true,
+    sky: ['#1f4d2b', '#5aa05f', '#d8f2b8'], ground: '#3f7a3a',
+    road: ['#6b8f3e', '#8fb35a'], far: '#244d22',
+    props: ['\u{1F33C}', '\u{1F337}', '\u{1F33B}', '\u{1F33F}', '\u{1F41D}'] },
+  { key: 'reef', name: 'Coral reef', skyline: 'bubbles', learnOnly: true,
+    sky: ['#023047', '#0a6a8f', '#3fb3d6'], ground: '#0c4f6b',
+    road: ['#d8c28f', '#eedaa6'], far: '#063a52',
+    props: ['\u{1FAB8}', '\u{1F420}', '\u{1F41F}', '\u{1F41A}', '\u{1F33F}'] },
+  { key: 'deep-sea', name: 'Deep sea', skyline: 'bubbles', learnOnly: true,
+    sky: ['#010b1c', '#03244a', '#0b4a7a'], ground: '#041a33',
+    road: ['#0d2d4f', '#154170'], far: '#020f22',
+    props: ['\u{1F40B}', '\u{1F988}', '\u{1F991}', '\u{1FAB8}', '\u{1F421}'] },
+  { key: 'savanna', name: 'Grassland', skyline: 'dunes', learnOnly: true,
+    sky: ['#4a2a12', '#c7782a', '#f7d27c'], ground: '#8a7a2e',
+    road: ['#a38f45', '#c2ad5e'], far: '#5a4a1a',
+    props: ['\u{1F333}', '\u{1F992}', '\u{1F993}', '\u{1F418}', '\u{1F33E}'] },
+  { key: 'ricefield', name: 'Rice field', skyline: 'mountains', learnOnly: true,
+    sky: ['#1c4a6b', '#4c9ac7', '#c9ecf7'], ground: '#4f8f3a',
+    road: ['#7a5a35', '#9a7648'], far: '#2f6b2a',
+    props: ['\u{1F33E}', '\u{1F33E}', '\u{1F438}', '\u{1F406}', '\u{1F3E1}'] },
 ];
+
+/** The free run only rotates through the original five places. */
+const FREE_THEMES = THEMES.filter((t) => !t.learnOnly);
+const themeByKey = (key) => THEMES.find((t) => t.key === key) || THEMES[0];
 
 export class RunnerGame {
   constructor(canvas, sfx, onEvent = () => {}) {
@@ -128,6 +184,8 @@ export class RunnerGame {
     this.speedMultiplier = SPEED_PRESETS.medium.multiplier;
     this.gatesEnabled = true;
     this.wallsEnabled = true;
+    this.adventure = null;     // a learning adventure from lessons.js, or null
+    this.lang = 'both';        // 'id', 'en' or 'both', for signs drawn on the track
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.reset();
@@ -178,7 +236,7 @@ export class RunnerGame {
     this.bestCombo = 0;
     this.multiplier = 1;
     this.themeIndex = 0;
-    this.theme = THEMES[0];
+    this.theme = this._zones()[0];
     this.nextGateAt = FIRST_GATE;
     this.nextWallAt = FIRST_WALL;
     this.player = {
@@ -186,7 +244,30 @@ export class RunnerGame {
       ducking: false, duckTimer: 0,
       lastJumpAt: -99, lastDuckAt: -99, lastAirborneAt: -99,
     };
-    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0, poses: 0, letters: 0 };
+    this.stats = { jumps: 0, ducks: 0, lanes: 0, reaches: 0, poses: 0, letters: 0,
+                   learned: 0, quizRight: 0, quizTotal: 0 };
+    this.hearts = HEARTS;
+    this.lesson = {
+      index: 0,        // the step of the adventure coming up next
+      loops: 0,        // how many times the whole adventure has been run through
+      asked: false,    // has the question for this step been asked yet
+      nextAt: FIRST_LESSON,
+      stop: null,      // the lesson stop on the track right now
+      quiz: null,      // the question signs on the track right now
+      learnedKeys: [], // step indices learned this run, in order
+    };
+  }
+
+  /** Choose a learning adventure, or null for the free run. */
+  setAdventure(adventure) {
+    this.adventure = adventure || null;
+    this.theme = this._zones()[0];
+    this.themeIndex = 0;
+  }
+
+  _zones() {
+    if (!this.adventure) return FREE_THEMES;
+    return this.adventure.zones.map(themeByKey);
   }
 
   start() {
@@ -220,15 +301,17 @@ export class RunnerGame {
     this._advanceWorld(dt);
     this._collide(dt);
     this._resolveWalls(input);
+    if (this.running) this._resolveLesson();
     this.render();
   }
 
   /** Move to the next place when the child has run far enough. */
   _updateZone() {
-    const index = Math.floor(this.distance / ZONE_LENGTH) % THEMES.length;
+    const zones = this._zones();
+    const index = Math.floor(this.distance / ZONE_LENGTH) % zones.length;
     if (index === this.themeIndex) return;
     this.themeIndex = index;
-    this.theme = THEMES[index];
+    this.theme = zones[index];
     this.scenery = [];
     this.flash = 0.8;
     this._popup(this.theme.name, '#4cc9f0');
@@ -249,6 +332,8 @@ export class RunnerGame {
 
   /** What the child has to get ready for, for the HUD. */
   nextChallenge() {
+    const quiz = this.lesson.quiz;
+    if (quiz) return { type: 'quiz', distance: Math.max(0, quiz.z - PLAYER_Z) };
     const wall = this.walls.filter((w) => !w.resolved).sort((a, b) => a.z - b.z)[0];
     if (wall) return { type: 'letter', letter: wall.letter, distance: Math.max(0, wall.z - PLAYER_Z) };
     const gateIn = this.nextGateAt - this.distance;
@@ -317,11 +402,18 @@ export class RunnerGame {
   _spawn(dt) {
     this._spawnScenery(dt);
 
-    if (this.gatesEnabled && this.distance >= this.nextGateAt && !this.gate) {
+    const lessonOnTrack = this.lesson.stop || this.lesson.quiz;
+    if (this.gatesEnabled && this.distance >= this.nextGateAt && !this.gate && !lessonOnTrack) {
       this._openGate();
       return;
     }
-    if (this.wallsEnabled && this.distance >= this.nextWallAt) {
+    if (this.adventure && this.distance >= this.lesson.nextAt &&
+        !this.lesson.stop && !this.lesson.quiz && !this.walls.some((w) => !w.resolved)) {
+      this._spawnLessonStop();
+      return;
+    }
+    // In an adventure the letters come from the lessons, not at random.
+    if (this.wallsEnabled && !this.adventure && this.distance >= this.nextWallAt) {
       this._spawnWall();
       return;
     }
@@ -484,6 +576,8 @@ export class RunnerGame {
     const d = this.speed * dt;
     for (const o of this.obstacles) o.z -= d;
     for (const w of this.walls) w.z -= d;
+    if (this.lesson.stop) this.lesson.stop.z -= d;
+    if (this.lesson.quiz) this.lesson.quiz.z -= d;
     for (const p of this.scenery) p.z -= d;
     for (const p of this.pickups) { p.z -= d; p.spin += dt * 4; }
     this.walls = this.walls.filter((w) => w.z > -4);
@@ -506,6 +600,14 @@ export class RunnerGame {
   /** Overhead stretch sweeps up any star hanging within reach. */
   _grabHighPickups() {
     for (const p of this.pickups) {
+      if (p.kind === 'lesson' && !p.taken && p.z <= PLAYER_Z + 16 && p.z >= PLAYER_Z - 2) {
+        // A lesson stretch is about the stretch, not about the lane.
+        p.taken = true;
+        if (this.lesson.stop && this.lesson.stop.pickup === p) this.lesson.stop.ok = true;
+        this.sfx.shield();
+        this._burst({ lane: this.player.lane, z: p.z, y: 2 }, '#7ddf9a', 22);
+        continue;
+      }
       if (p.kind !== 'shield' || p.taken) continue;
       if (p.z > PLAYER_Z + 16 || p.z < PLAYER_Z - 2) continue;
       if (p.lane !== this.player.lane) continue;
@@ -516,6 +618,130 @@ export class RunnerGame {
       this.onEvent('Star shield!', {});
       this._burst(p, '#ffd166', 22);
     }
+  }
+
+  // ------------------------------------------------------ learning stops
+
+  /**
+   * The next lesson stop: first the question, if the adventure has been run
+   * through once already; then the step itself, acted out with its movement.
+   */
+  _spawnLessonStop() {
+    const L = this.lesson;
+    const adv = this.adventure;
+    if (L.loops > 0 && !L.asked) {
+      this._spawnQuiz();
+      return;
+    }
+    L.asked = false;
+    const index = L.index;
+    const step = adv.steps[index];
+    // Clear the approach so the lesson is the only thing to read.
+    this.obstacles = this.obstacles.filter((o) => o.z < FAR - 16);
+    this.sinceSpawn = -16;
+    const stop = { step, index, move: step.move, z: FAR, ok: false, bumped: false };
+
+    const lessonObstacle = (type, lane) => ({ ...this._makeObstacle(type, lane), emoji: step.emoji, lesson: true });
+    if (step.move === 'jump') {
+      for (const lane of LANES) this.obstacles.push(lessonObstacle('barrier', lane));
+    } else if (step.move === 'duck') {
+      for (const lane of LANES) this.obstacles.push(lessonObstacle('bar', lane));
+    } else if (step.move === 'dodge') {
+      // The open lane is never the one the child is standing in: the lesson is
+      // the step, so there has to be one.
+      const free = pick(LANES.filter((l) => l !== this.player.lane));
+      for (const lane of LANES) if (lane !== free) this.obstacles.push(lessonObstacle('train', lane));
+      for (let i = 0; i < 4; i++) this.pickups.push(fruit(free, FAR + 3 + i * 1.6, 0.75));
+      stop.free = free;
+    } else if (step.move === 'reach') {
+      const pickup = { kind: 'lesson', lane: 0, z: FAR, y: 2.1, spin: 0, emoji: step.emoji };
+      this.pickups.push(pickup);
+      stop.pickup = pickup;
+    } else if (step.move === 'letter') {
+      const wall = { letter: step.letter, z: FAR, resolved: false, matched: false, lesson: true, emoji: step.emoji };
+      this.walls.push(wall);
+      stop.wall = wall;
+    }
+    L.stop = stop;
+    L.nextAt = this.distance + LESSON_EVERY + Math.random() * 12;
+    this.onEvent(step.en, {
+      lesson: { step, index, total: adv.steps.length, loop: L.loops },
+    });
+  }
+
+  _spawnQuiz() {
+    const L = this.lesson;
+    const q = makeQuestion(this.adventure, L.index);
+    q.options.forEach((o, i) => { o.lane = LANES[i]; });
+    // Choosing a lane is the task now, so nothing else may be on the track
+    // while the signs approach -- only what is already about to arrive.
+    this.obstacles = this.obstacles.filter((o) => o.z < PLAYER_Z + 10);
+    this.pickups = this.pickups.filter((p) => p.z < PLAYER_Z + 10);
+    this.sinceSpawn = -24;
+    L.quiz = { ...q, z: FAR, index: L.index };
+    L.asked = true;
+    L.nextAt = Infinity;              // the stop follows once this is answered
+    this.onEvent('Question!', { quiz: L.quiz });
+  }
+
+  /** Mark stops and questions as they pass the child. */
+  _resolveLesson() {
+    const L = this.lesson;
+    const adv = this.adventure;
+    if (!adv) return;
+
+    const quiz = L.quiz;
+    if (quiz && quiz.z - PLAYER_Z < 0) {
+      L.quiz = null;
+      const lane = Math.round(this.player.x);
+      const chosen = quiz.options.find((o) => o.lane === lane) || quiz.options[1];
+      const right = quiz.options.find((o) => o.correct);
+      this.stats.quizTotal++;
+      if (chosen.correct) {
+        this.stats.quizRight++;
+        this._addCombo();
+        this.coins += 5 * this.multiplier;
+        this.flash = 0.9;
+        this.sfx.shield();
+        this._popup('\u2714', '#7ddf9a');
+        this._burst({ lane, z: PLAYER_Z, y: 1.2 }, '#7ddf9a', 24);
+      } else {
+        this._breakCombo();
+        this.sfx.block();
+      }
+      L.nextAt = this.distance + AFTER_QUIZ;
+      this.onEvent(chosen.correct ? 'Right!' : 'Not quite', {
+        answer: { correct: chosen.correct, chosen, right, prompt: quiz.prompt },
+      });
+    }
+
+    const stop = L.stop;
+    if (!stop || stop.z - PLAYER_Z > -1.4) return;
+    L.stop = null;
+    let ok;
+    if (stop.move === 'reach') ok = stop.ok;
+    else if (stop.move === 'letter') ok = stop.wall.matched;
+    else ok = !stop.bumped;
+
+    if (!ok) {
+      L.nextAt = this.distance + RETRY_AFTER;
+      L.asked = true;                   // no second question, just the move again
+      this.onEvent('Try again!', { lessonMissed: { step: stop.step, index: stop.index } });
+      return;
+    }
+    this.stats.learned++;
+    L.learnedKeys.push(stop.index);
+    this._addCombo();
+    this.coins += 3 * this.multiplier;
+    this.flash = 0.9;
+    this.sfx.shield();
+    this._popup(`${stop.step.emoji} ${stop.step.en}`, '#7ddf9a');
+    L.index = (stop.index + 1) % adv.steps.length;
+    const loopDone = L.index === 0;
+    if (loopDone) L.loops++;
+    this.onEvent(`${stop.step.en}!`, {
+      learned: { step: stop.step, index: stop.index, total: adv.steps.length, loopDone, loops: L.loops },
+    });
   }
 
   // -------------------------------------------------------------- collision
@@ -552,8 +778,12 @@ export class RunnerGame {
         this.onEvent('Just made it!', {});
       } else if (pc.timer <= 0) {
         this.pendingCrash = null;
-        this._gameOver();
-        return;
+        if (this.adventure && this.hearts > 1) {
+          this._bump(pc.obstacle);
+        } else {
+          this._gameOver();
+          return;
+        }
       }
     }
 
@@ -623,6 +853,12 @@ export class RunnerGame {
         continue;
       }
       wall.resolved = true;
+      if (wall.lesson) {
+        // The lesson stop gives the feedback; the wall only records the shape.
+        if (wall.matched) this.stats.letters++;
+        else this._breakCombo();
+        continue;
+      }
       if (wall.matched) {
         this.stats.letters++;
         this._addCombo();
@@ -640,6 +876,22 @@ export class RunnerGame {
         this.onEvent('Next time!', { wallMissed: wall.letter });
       }
     }
+  }
+
+  /**
+   * In an adventure a crash costs a heart instead of the run: the point is to
+   * get to the next lesson, and a child sent back to the menu mid-cycle never
+   * sees how the water gets back to the sea.
+   */
+  _bump(obstacle) {
+    this.hearts--;
+    obstacle.hit = true;
+    this._breakCombo();
+    this.shake = 0.8;
+    this.sfx.crash();
+    if (obstacle.lesson && this.lesson.stop) this.lesson.stop.bumped = true;
+    this._popup('\u2764\uFE0F -1', '#ef476f');
+    this.onEvent('Ouch!', { hearts: this.hearts });
   }
 
   _gameOver() {
@@ -701,6 +953,10 @@ export class RunnerGame {
       { z: PLAYER_Z, draw: () => this._drawPlayer() },
     ];
     if (this.gate) items.push({ z: this.gate.z, draw: () => this._drawGate() });
+    const quiz = this.lesson.quiz;
+    if (quiz) {
+      for (const o of quiz.options) items.push({ z: quiz.z, draw: () => this._drawSign(o, quiz.z) });
+    }
     items.sort((a, b) => b.z - a.z);
     for (const it of items) it.draw();
 
@@ -775,6 +1031,40 @@ export class RunnerGame {
           ctx.fillStyle = 'rgba(20,34,52,0.9)';
         }
       }
+    } else if (theme.skyline === 'waves') {
+      // The open sea on the horizon, with the sun that lifts the water.
+      ctx.fillStyle = 'rgba(255,236,160,0.9)';
+      ctx.beginPath();
+      ctx.arc(this.w * 0.78, this.horizon * 0.35, Math.max(16, this.horizon * 0.14), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(28,110,156,0.95)';
+      ctx.fillRect(0, this.horizon - 18, this.w, 18);
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 30; i++) {
+        const x = at(i);
+        ctx.beginPath();
+        ctx.arc(x, this.horizon - 16, 14, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+      }
+    } else if (theme.skyline === 'clouds' || theme.skyline === 'bubbles') {
+      const bubbles = theme.skyline === 'bubbles';
+      ctx.fillStyle = bubbles ? 'rgba(200,240,255,0.35)' : 'rgba(255,255,255,0.85)';
+      for (let i = 0; i < (bubbles ? 40 : 16); i++) {
+        const x = ((i * 157 + shift * (bubbles ? 0.2 : 0.5)) % span) - 130;
+        const rise = bubbles ? (this.time * 30 + i * 41) % Math.max(1, this.horizon) : 0;
+        const y = bubbles ? this.horizon - rise : 20 + ((i * 67) % Math.max(1, this.horizon - 60));
+        const r = bubbles ? 3 + (i % 4) * 2 : 22 + (i % 3) * 10;
+        ctx.beginPath();
+        if (bubbles) {
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+        } else {
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.arc(x + r, y + 6, r * 0.8, 0, Math.PI * 2);
+          ctx.arc(x - r, y + 8, r * 0.7, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
     } else if (theme.skyline === 'dunes') {
       ctx.fillStyle = 'rgba(60,38,16,0.8)';
       for (let i = 0; i < 18; i++) {
@@ -839,6 +1129,11 @@ export class RunnerGame {
     ctx.lineWidth = Math.max(2, size * 0.05);
     ctx.strokeStyle = hit ? '#7ddf9a' : '#ffd166';
     ctx.strokeText(wall.letter, centre.x, centre.y);
+    if (wall.emoji) {
+      // A lesson wall shows who is making the shape: the starfish, the eagle.
+      const tag = this.project(-1.2, WALL.h1 - 0.45, z);
+      this._emoji(wall.emoji, tag.x, tag.y, Math.min(0.7 * this.unit * tag.s, this.h * 0.14));
+    }
     ctx.restore();
   }
 
@@ -968,6 +1263,22 @@ export class RunnerGame {
     const bob = Math.sin(p.spin * 1.6) * 4 * pos.s;
     if (p.kind === 'coin') {
       this._emoji(p.emoji, pos.x, pos.y + bob, 0.42 * this.unit * pos.s);
+    } else if (p.kind === 'lesson') {
+      // Hangs in front of whichever lane the child is in: reaching is the task.
+      const at = this.project(this.player.x, p.y, Math.max(p.z, -0.8));
+      const r = Math.max(4, 0.5 * this.unit * at.s);
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.fillStyle = 'rgba(125,223,154,0.25)';
+      ctx.beginPath();
+      ctx.arc(at.x, at.y + bob, r * 1.25, 0, Math.PI * 2);
+      ctx.fill();
+      this._emoji(p.emoji, at.x, at.y + bob, r * 1.8);
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = `bold ${Math.max(12, r)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('\u2191 \u2191', at.x, at.y - r * 1.5);
+      ctx.restore();
     } else {
       const ctx = this.ctx;
       const r = Math.max(3, 0.34 * this.unit * pos.s);
@@ -1018,6 +1329,44 @@ export class RunnerGame {
       roundRect(ctx, x, y, barW * Math.min(1, g.progress), barH, barH / 2);
       ctx.fill();
     }
+  }
+
+  /**
+   * An answer sign standing in a lane. The child answers by running under the
+   * right one, so it is drawn tall and clear, with the picture doing the work
+   * and the word underneath for a grown-up to read along.
+   */
+  _drawSign(option, zRaw) {
+    const exit = PLAYER_Z - 1.2;
+    if (zRaw > FAR + 4 || zRaw < exit) return;
+    const ctx = this.ctx;
+    const z = Math.max(zRaw, -0.8);
+    const bottom = this.project(option.lane, 0, z);
+    const tl = this.project(option.lane - 0.44, 2.35, z);
+    const br = this.project(option.lane + 0.44, 1.2, z);
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, (zRaw - exit) / 1.2);
+    const postW = Math.max(2, 0.06 * this.unit * bottom.s);
+    ctx.fillStyle = '#6b4a2b';
+    ctx.fillRect(bottom.x - postW / 2, br.y, postW, bottom.y - br.y);
+    ctx.fillStyle = '#fff6e0';
+    roundRect(ctx, tl.x, tl.y, br.x - tl.x, br.y - tl.y, (br.x - tl.x) * 0.12);
+    ctx.fill();
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = Math.max(2, 5 * bottom.s);
+    ctx.stroke();
+    const h = br.y - tl.y;
+    this._emoji(option.emoji, (tl.x + br.x) / 2, tl.y + h * 0.4, Math.min(h * 0.55, (br.x - tl.x) * 0.7));
+    const word = this.lang === 'en' ? option.en : option.id;
+    const fontPx = Math.max(8, Math.min(h * 0.17, ((br.x - tl.x) * 1.5) / Math.max(4, word.length)));
+    if (fontPx >= 8) {
+      ctx.fillStyle = '#23180a';
+      ctx.font = `bold ${Math.round(fontPx)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(word, (tl.x + br.x) / 2, tl.y + h * 0.83);
+    }
+    ctx.restore();
   }
 
   _drawPlayer() {

@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0d1b2a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="description" content="Motion-tracked endless runner for paediatric occupational therapy: jump, duck, dodge, stretch and hold yoga poses.">
+<meta name="description" content="Motion-tracked endless runner for paediatric occupational therapy that also teaches: the water cycle, a butterfly's life, sea life, wildlife and the food chain, acted out with the whole body.">
 <title>Sensory Runner</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -25,6 +25,29 @@
     <div class="hud-chip" id="hud-coins">&#127822; 0</div>
     <div class="hud-chip" id="hud-move">Ready</div>
     <div class="hud-chip hidden" id="hud-combo">&#128293; x1</div>
+    <div class="hud-chip hidden" id="hud-hearts">&#10084;&#65039;&#10084;&#65039;&#10084;&#65039;</div>
+  </div>
+
+  <!-- Learning adventure: where we are in the cycle, and what to do now. -->
+  <div id="lesson" class="hidden">
+    <div id="lesson-head"><span id="lesson-icon"></span><span id="lesson-title"></span></div>
+    <div id="lesson-steps"></div>
+    <div id="lesson-now">
+      <span id="lesson-emoji"></span>
+      <div><b id="lesson-name"></b><div id="lesson-do"></div></div>
+    </div>
+  </div>
+
+  <!-- A question, answered by stepping into the lane with the right sign. -->
+  <div id="quiz" class="hidden">
+    <div id="quiz-prompt"></div>
+    <div id="quiz-hint"></div>
+  </div>
+
+  <!-- What was just learned. Low on the screen, clear of the track ahead. -->
+  <div id="fact" class="hidden">
+    <span id="fact-emoji"></span>
+    <div><b id="fact-title"></b><div id="fact-text"></div></div>
   </div>
 
   <!-- Wall prompt. A chip, not a panel: it must never cover the oncoming wall. -->
@@ -45,8 +68,27 @@
 
     <!-- ---------------------------------------------------------- menu -->
     <div class="panel" id="panel-start">
+      <a id="super-home" class="super-home hidden" href="../index.html">&#127968; Rumah Belajar</a>
       <h1>Sensory Runner</h1>
-      <p class="tagline">Move your whole body to play.</p>
+      <p class="tagline">Move your whole body to play &mdash; and learn as you run.</p>
+
+      <div class="field">
+        <span class="field-label">Adventure &middot; Petualangan</span>
+        <div class="adventures" id="adventure-picker" role="group" aria-label="Adventure"></div>
+        <p class="adventure-note" id="adventure-note"></p>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Language &middot; Bahasa</span>
+        <div class="segmented" id="lang-picker" role="group" aria-label="Language">
+          <button type="button" data-lang="id">&#127470;&#127465; Indonesia</button>
+          <button type="button" data-lang="both" class="on">&#127470;&#127465; + &#127468;&#127463;</button>
+          <button type="button" data-lang="en">&#127468;&#127463; English</button>
+        </div>
+      </div>
+
+      <details class="howto">
+      <summary>How to play &middot; Cara bermain</summary>
       <ul class="legend">
         <li><span class="ico">&#129418;</span><b>Jump</b> over the ground animals</li>
         <li><span class="ico">&#129414;</span><b>Duck</b> under the flying ones</li>
@@ -55,6 +97,7 @@
         <li><span class="ico">&#129420;</span><b>Hold a pose</b> at the yoga gate</li>
         <li><span class="ico">&#10062;</span><b>Make the letter</b> to fit through the wall</li>
       </ul>
+      </details>
 
       <div class="field">
         <span class="field-label">Speed</span>
@@ -118,7 +161,11 @@
         <div><b id="stat-poses">0</b><small>&#129420; poses</small></div>
         <div><b id="stat-combo">0</b><small>&#128293; best streak</small></div>
         <div><b id="stat-fruit">0</b><small>&#127822; fruit</small></div>
+        <div class="learn-only"><b id="stat-learned">0</b><small>&#128218; learned</small></div>
+        <div class="learn-only"><b id="stat-quiz">0</b><small>&#9989; answers</small></div>
       </div>
+      <div id="learned-list" class="learned-list hidden"></div>
+      <p id="over-ethic" class="ethic hidden"></p>
       <div class="exercise">
         <div><b id="stat-time">0:00</b><small>moving</small></div>
         <div><b id="stat-kcal">0</b><small>kcal (est.)</small></div>
@@ -128,6 +175,7 @@
       <div id="breath"><div id="breath-dot"></div></div>
       <button id="btn-again" class="primary">Run again</button>
       <button id="btn-menu" class="ghost">Back to menu</button>
+      <a id="super-home-2" class="ghost-link hidden" href="../index.html">&#127968; Back to Rumah Belajar</a>
     </div>
 
     <!-- ----------------------------------------------------- progress -->
